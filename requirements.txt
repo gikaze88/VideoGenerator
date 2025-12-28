@@ -6,35 +6,35 @@
 
 # Core Dependencies
 # ========================================
-python-dotenv>=1.0.0              # Environment variables management
-requests>=2.32.0                  # HTTP requests for API calls
+python-dotenv==1.1.0              # Environment variables management
+requests==2.32.4                  # HTTP requests for API calls
 
 # AI/ML - Text-to-Speech (ElevenLabs API)
 # ========================================
-openai>=1.86.0                    # For ElevenLabs API and other AI services
+openai==1.86.0                    # For ElevenLabs API and other AI services
 
 # AI/ML - Speech-to-Text (Whisper)
 # ========================================
-openai-whisper>=20240930          # OpenAI Whisper for subtitle generation
+openai-whisper==20240930          # OpenAI Whisper for subtitle generation
 
 # PyTorch Installation
 # -------------------------------------------------------------------------
-# Versions testées et validées:
-#   - CPU: torch==2.7.1, torchaudio==2.7.1, torchvision==0.20.1
-#   - GPU (CUDA 12.1): torch==2.7.1+cu121, torchaudio==2.7.1+cu121, torchvision==0.20.1+cu121
+# Versions EXACTES testées et validées:
+#   - CPU: torch==2.5.1, torchaudio==2.5.1, torchvision==0.20.1
+#   - GPU (CUDA 12.1): torch==2.5.1+cu121, torchaudio==2.5.1+cu121, torchvision==0.20.1+cu121
 #
 # OPTION 1 - CPU (Par défaut):
 #   pip install -r requirements.txt
 #
 # OPTION 2 - GPU NVIDIA (CUDA 12.1) - RECOMMANDÉ si vous avez une carte NVIDIA:
-#   pip install torch==2.7.1+cu121 torchvision==0.20.1+cu121 torchaudio==2.7.1+cu121 --index-url https://download.pytorch.org/whl/cu121
+#   pip install torch==2.5.1+cu121 torchvision==0.20.1+cu121 torchaudio==2.5.1+cu121 --index-url https://download.pytorch.org/whl/cu121
 #   pip install -r requirements.txt
 #
 # Vérifier CUDA: python -c "import torch; print(f'CUDA: {torch.cuda.is_available()}')"
 
-torch>=2.7.0                      # PyTorch (CPU or CUDA version)
-torchaudio>=2.7.0                 # Audio processing for Whisper
-torchvision>=0.20.0               # Vision utilities (Whisper dependency)
+torch==2.5.1                      # PyTorch (versions exactes testées)
+torchaudio==2.5.1                 # Audio processing for Whisper
+torchvision==0.20.1               # Vision utilities (Whisper dependency)
 
 # Note: openai-whisper installe automatiquement:
 #   - whisper (le module principal)
@@ -43,11 +43,11 @@ torchvision>=0.20.0               # Vision utilities (Whisper dependency)
 
 # Audio/Video Processing
 # ========================================
-ffmpeg-python>=0.2.0              # FFmpeg wrapper for Python
-soundfile>=0.13.0                 # Audio file I/O
-librosa>=0.11.0                   # Audio analysis and processing
-numpy>=2.2.0                      # Numerical computing
-scipy>=1.15.0                     # Scientific computing
+ffmpeg-python==0.2.0              # FFmpeg wrapper for Python
+soundfile==0.13.1                 # Audio file I/O
+librosa==0.11.0                   # Audio analysis and processing
+numpy==2.2.6                      # Numerical computing
+scipy==1.15.3                     # Scientific computing
 
 # Optional: Local TTS with Coqui TTS
 # ========================================
@@ -59,8 +59,8 @@ scipy>=1.15.0                     # Scientific computing
 
 # Utility Libraries
 # ========================================
-tqdm>=4.67.0                      # Progress bars
-colorama>=0.4.6                   # Colored terminal output (Windows)
+tqdm==4.67.1                      # Progress bars
+colorama==0.4.6                   # Colored terminal output (Windows)
 
 # System Requirements
 # ========================================
