@@ -1,0 +1,137 @@
+# ========================================
+# SagesseDuChrist - Video Generator
+# Python Requirements File
+# ========================================
+# Python Version: >=3.10,<3.13 (required for Coqui TTS compatibility)
+
+# Core Dependencies
+# ========================================
+python-dotenv>=1.0.0              # Environment variables management
+requests>=2.32.0                  # HTTP requests for API calls
+
+# AI/ML - Text-to-Speech (ElevenLabs API)
+# ========================================
+openai>=1.86.0                    # For ElevenLabs API and other AI services
+
+# AI/ML - Speech-to-Text (Whisper)
+# ========================================
+openai-whisper>=20240930          # OpenAI Whisper for subtitle generation
+
+# PyTorch Installation
+# -------------------------------------------------------------------------
+# Versions testées et validées:
+#   - CPU: torch==2.7.1, torchaudio==2.7.1, torchvision==0.20.1
+#   - GPU (CUDA 12.1): torch==2.7.1+cu121, torchaudio==2.7.1+cu121, torchvision==0.20.1+cu121
+#
+# OPTION 1 - CPU (Par défaut):
+#   pip install -r requirements.txt
+#
+# OPTION 2 - GPU NVIDIA (CUDA 12.1) - RECOMMANDÉ si vous avez une carte NVIDIA:
+#   pip install torch==2.7.1+cu121 torchvision==0.20.1+cu121 torchaudio==2.7.1+cu121 --index-url https://download.pytorch.org/whl/cu121
+#   pip install -r requirements.txt
+#
+# Vérifier CUDA: python -c "import torch; print(f'CUDA: {torch.cuda.is_available()}')"
+
+torch>=2.7.0                      # PyTorch (CPU or CUDA version)
+torchaudio>=2.7.0                 # Audio processing for Whisper
+torchvision>=0.20.0               # Vision utilities (Whisper dependency)
+
+# Note: openai-whisper installe automatiquement:
+#   - whisper (le module principal)
+#   - tiktoken (tokenization)
+#   - ffmpeg-python (déjà listé ci-dessous)
+
+# Audio/Video Processing
+# ========================================
+ffmpeg-python>=0.2.0              # FFmpeg wrapper for Python
+soundfile>=0.13.0                 # Audio file I/O
+librosa>=0.11.0                   # Audio analysis and processing
+numpy>=2.2.0                      # Numerical computing
+scipy>=1.15.0                     # Scientific computing
+
+# Optional: Local TTS with Coqui TTS
+# ========================================
+# Uncomment if you want to use local TTS instead of ElevenLabs:
+# coqui-tts>=0.26.0
+# gruut>=2.4.0
+# gruut_lang_fr>=2.0.2
+# monotonic-alignment-search>=0.2.0
+
+# Utility Libraries
+# ========================================
+tqdm>=4.67.0                      # Progress bars
+colorama>=0.4.6                   # Colored terminal output (Windows)
+
+# System Requirements
+# ========================================
+# 1. FFmpeg must be installed on your system:
+#    - Windows: choco install ffmpeg  OR  scoop install ffmpeg
+#    - Linux:   sudo apt install ffmpeg
+#    - macOS:   brew install ffmpeg
+#
+# 2. Font Requirements (for overlays):
+#    - Windows: Montserrat fonts should be installed in C:/Windows/Fonts/
+#      Download from: https://fonts.google.com/specimen/Montserrat
+#      Required files:
+#        * montserrat-regular.ttf
+#        * montserrat-bold.ttf
+#        * montserrat-extralight.ttf
+#
+# 3. API Keys Required (in .env file):
+#    - ELEVENLABS_API_KEY: For voice generation
+#    - ELEVENLABS_VOICE_ID: Your preferred voice ID
+#    - OPENAI_API_KEY: (Optional) For additional AI features
+#    - PEXELS_API_KEY: (Optional) For video stock footage
+#    - PIXABAY_API_KEY: (Optional) For video stock footage
+#
+# 4. Directory Structure:
+#    - videos_db/videos_db_light/  : Light theme background videos
+#    - videos_db/videos_db_dark/   : Dark theme background videos
+#    - background_songs/           : Background music files
+#    - working_dir/                : Input files for processing
+#    - working_dir_audio_srt/      : Input for audio+srt pipeline
+#    - working_dir_simple/         : Input for simple looped video pipeline
+
+# Installation Instructions
+# ========================================
+# 1. Create virtual environment:
+#    python -m venv venv
+#
+# 2. Activate virtual environment:
+#    Windows: venv\Scripts\activate
+#    Linux/Mac: source venv/bin/activate
+#
+# 3. Install dependencies:
+#    pip install -r requirements.txt
+#
+# 4. Install FFmpeg (system-wide):
+#    Windows: choco install ffmpeg
+#    Linux: sudo apt install ffmpeg
+#    macOS: brew install ffmpeg
+#
+# 5. Create .env file with your API keys (see .env.example)
+#
+# 6. Install Montserrat fonts (download from Google Fonts)
+#
+# 7. Prepare directory structure and add your videos/music
+
+# Hardware Recommendations
+# ========================================
+# Minimum:
+#   - CPU: 4 cores
+#   - RAM: 8GB
+#   - Storage: 50GB free space
+#   - GPU: Optional (NVIDIA for CUDA acceleration)
+#
+# Recommended:
+#   - CPU: 8+ cores
+#   - RAM: 16GB+
+#   - Storage: 100GB+ SSD
+#   - GPU: NVIDIA RTX series (for faster processing)
+
+# Performance Notes
+# ========================================
+# - CPU encoding (libx264): Slower but compatible everywhere
+# - GPU encoding (NVENC/QSV): 3-5x faster but requires compatible hardware
+# - Whisper model: "base" is fastest, "large" is most accurate
+# - Video quality: CRF 18 (high), CRF 23 (medium), CRF 28 (low)

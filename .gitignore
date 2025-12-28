@@ -1,0 +1,363 @@
+# ========================================
+# SagesseDuChrist - Video Generator
+# Git Ignore File
+# ========================================
+
+# ========================================
+# 1. ENVIRONMENT & SECRETS
+# ========================================
+.env
+.env.local
+.env.*.local
+*.env
+*_env
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+sagesseduchrist/
+
+# API Keys & Credentials
+google_credentials.json
+*.pem
+*.key
+*.crt
+
+# ========================================
+# 2. PYTHON
+# ========================================
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.pytest_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# PEP 582
+__pypackages__/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# ========================================
+# 3. VIDEO GENERATOR OUTPUT FILES
+# ========================================
+# Generated project folders
+Project_*/
+output/
+output.txt
+
+# Temporary video processing files
+temp_normalized/
+temp_with_subs.mp4
+subtitles_masked.srt
+subtitles_shifted*.srt
+subtitles_adjusted*.srt
+subtitles_enhanced*.srt
+*_shifted*.srt
+*_temp*.mp3
+*_temp*.mp4
+segment_*.mp3
+concat_*.txt
+silence_temp.mp3
+verse_*_*.txt
+branding.txt
+
+# Generated media files
+*.mp4
+*.mp3
+*.m4a
+*.srt
+*.wav
+background_video.mp4
+full_audio_boosted.mp3
+mixed_audio.m4a
+voice_audio*.mp3
+final_video*.mp4
+
+# Metadata files
+bible_verses_metadata.json
+metadata.json
+
+# ========================================
+# 4. INPUT RESOURCES (LARGE FILES)
+# ========================================
+# Background videos (add selectively if needed)
+videos_db/
+videos_db_dark/
+videos_db_light/
+
+# Background music (add selectively if needed)
+background_songs/*.mp3
+
+# Working directories content
+working_dir/*
+working_dir_audio_srt/*
+working_dir_simple/*
+working_dir_shorts/*
+working_dir_full_local/*
+working_dir_audio_srt_shorts/*
+
+# Keep the directory structure but ignore contents
+!working_dir/.gitkeep
+!working_dir_audio_srt/.gitkeep
+!working_dir_simple/.gitkeep
+!working_dir_shorts/.gitkeep
+!working_dir_full_local/.gitkeep
+!working_dir_audio_srt_shorts/.gitkeep
+!videos_db/.gitkeep
+!videos_db_dark/.gitkeep
+!videos_db_light/.gitkeep
+!background_songs/.gitkeep
+
+# Thumbnails/Images (if generated)
+Minatures/*.png
+Minatures/*.jpg
+Minatures/pictures/*.png
+Minatures/pictures/*.jpg
+
+# ========================================
+# 5. EDITORS & IDEs
+# ========================================
+# VSCode
+.vscode/
+*.code-workspace
+
+# Cursor
+.cursor/
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# ========================================
+# 6. OPERATING SYSTEM
+# ========================================
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Linux
+*~
+.directory
+.Trash-*
+.nfs*
+
+# ========================================
+# 7. ARCHIVES & COMPRESSED FILES
+# ========================================
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip
+
+# ========================================
+# 8. LOGS & DATABASES
+# ========================================
+logs/
+*.log
+log.txt
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+*.sql
+*.sqlite
+*.db
+
+# ========================================
+# 9. OLD/BACKUP/TEST FILES
+# ========================================
+old_scripts/
+old script/
+*.backup
+*.bak
+*.old
+*_old.*
+*_backup.*
+test_*.py
+testing_*.py
+*_test.py
+*_Test.py
+*copy.py
+* copy.py
+
+# ========================================
+# 10. DOCUMENTATION (Optional - Keep if needed)
+# ========================================
+# Uncomment to exclude documentation:
+# ANALYSE_*.md
+# COMPARAISON_*.md
+# README_*.md
+
+# ========================================
+# 11. MACHINE LEARNING MODELS (Large Files)
+# ========================================
+# Whisper models cache
+~/.cache/whisper/
+*.pt
+*.pth
+*.ckpt
+
+# Hugging Face cache
+~/.cache/huggingface/
+
+# PyTorch models
+models/
+checkpoints/
+
+# ========================================
+# 12. MISCELLANEOUS
+# ========================================
+# Current requirements (using main requirements.txt instead)
+current_requirements.txt
+
+# Local configurations
+local_*.py
+config_local.*
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Note: To track empty directories, create .gitkeep files:
+# touch working_dir/.gitkeep
+# touch videos_db/.gitkeep
+# touch background_songs/.gitkeep
+
