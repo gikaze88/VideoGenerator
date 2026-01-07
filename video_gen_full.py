@@ -1,19 +1,32 @@
 import os
 import re
-from datetime import datetime
-import difflib
+import datetime
+import subprocess
+import ctypes.util
+import shutil
 import sys
 import random
-import subprocess
-import shutil
+from datetime import timedelta, datetime
+from dotenv import load_dotenv
+import requests
 
-# Fix pour l'encodage Windows
-if sys.platform == "win32":
-    import codecs
-    sys.stdout = codecs.getwriter("utf-8")(sys.stdout.detach())
+# --- Monkey-patch for Windows (Whisper) ---
+_orig_find_library = ctypes.util.find_library
+def patched_find_library(name):
+    result = _orig_find_library(name)
+    if name == "c" and result is None:
+        return "msvcrt"
+    return result
+ctypes.util.find_library = patched_find_library
+
+# Charger l'environnement et clés API
+load_dotenv()
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
+ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID")
+API_URL = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}"
 
 # Définir le dossier de travail pour les fichiers d'entrée
-WORKING_DIR = os.path.join(os.getcwd(), "working_dir_audio_srt")
+WORKING_DIR = os.path.join(os.getcwd(), "working_dir")
 
 # Créer le dossier de sortie : exemple "Project_DDMMYYYY_HHMMSS"
 OUTPUT_DIR = "Project_" + datetime.now().strftime("%d%m%Y_%H%M%S")
@@ -21,7 +34,125 @@ if not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR)
 
 ##############################
-# FONCTIONS UTILITAIRES
+# PARTIE 1 – Préparation & génération audio
+##############################
+
+def extract_title_and_script(file_path, title_file, script_file):
+    """Sépare le titre et le script brut depuis le fichier."""
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            text = f.read()
+        match = re.search(r"Transcript:\s*(.*)", text, re.DOTALL)
+        if match:
+            script_text = match.group(1).strip()
+            title_text = text[:match.start()].strip()
+            with open(title_file, "w", encoding="utf-8") as f_title:
+                f_title.write(title_text)
+            with open(script_file, "w", encoding="utf-8") as f_script:
+                f_script.write(script_text)
+            print(f"✅ Titre sauvegardé dans {title_file}")
+            print(f"✅ Script extrait sauvegardé dans {script_file}")
+        else:
+            print("❌ 'Transcript:' introuvable dans le texte.")
+    except Exception as e:
+        print(f"❌ Erreur lors de l'extraction : {e}")
+
+def clean_script(input_file, output_file):
+    """Nettoie le script en supprimant timestamps et espaces superflus."""
+    try:
+        with open(input_file, "r", encoding="utf-8") as f:
+            script_text = f.read()
+        script_text = re.sub(r'\(\d{1,2}:\d{2}\)', '', script_text)
+        script_text = re.sub(r'\s+', ' ', script_text).strip()
+        script_text = re.sub(r'([a-zA-Z])\.([A-Z])', r'\1. \2', script_text)
+        with open(output_file, "w", encoding="utf-8") as f_out:
+            f_out.write(script_text)
+        print(f"✅ Script nettoyé sauvegardé dans {output_file}")
+    except Exception as e:
+        print(f"❌ Erreur lors du nettoyage : {e}")
+
+def split_text_smart(text, max_length=4900):
+    """Découpe intelligemment le texte par phrase afin d'éviter de casser une phrase."""
+    chunks = []
+    while len(text) > max_length:
+        split_index = text.rfind(".", 0, max_length)
+        if split_index == -1:
+            split_index = max_length
+        chunks.append(text[:split_index+1].strip())
+        text = text[split_index+1:].strip()
+    chunks.append(text.strip())
+    return chunks
+
+def normalize_audio(input_file, output_file, target_i=-23):
+    """
+    Normalise the audio volume using FFmpeg's loudnorm filter.
+    `target_i` is the integrated loudness target (e.g., -23 LUFS).
+    """
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", input_file,
+        "-af", f"loudnorm=I={target_i}:TP=-2:LRA=11",
+        output_file
+    ]
+    subprocess.run(cmd, check=True)
+    print(f"✅ Audio normalisé sauvegardé dans {output_file}")
+
+def generate_audio(text_chunks):
+    """Génère et normalise des fichiers audio avec ElevenLabs pour chaque chunk."""
+    audio_files = []
+    for i, chunk in enumerate(text_chunks, 1):
+        audio_filename = os.path.join(OUTPUT_DIR, f"audio_part_{i}.mp3")
+        normalized_filename = os.path.join(OUTPUT_DIR, f"audio_part_{i}_norm.mp3")
+        headers = {
+            "xi-api-key": ELEVENLABS_API_KEY,
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "text": chunk,
+            "model_id": "eleven_multilingual_v1",
+            "voice_settings": {
+                "speed": 1.0,
+                "stability": 0.5,
+                "similarity_boost": 0.75
+            }
+        }
+        response = requests.post(API_URL, headers=headers, json=payload)
+        if response.status_code == 200:
+            with open(audio_filename, "wb") as af:
+                af.write(response.content)
+            print(f"✅ Audio généré : {audio_filename}")
+            # Normalize the generated audio to have consistent volume
+            normalize_audio(audio_filename, normalized_filename)
+            audio_files.append(normalized_filename)
+        else:
+            try:
+                error_msg = response.json()
+            except:
+                error_msg = response.text
+            print(f"❌ Erreur audio (Status {response.status_code}): {error_msg}")
+    return audio_files
+
+def process_audio_generation(input_script):
+    """
+    Exécute l'extraction, le nettoyage et la génération des audios.
+    Renvoie la liste des fichiers audio générés.
+    """
+    title_file = os.path.join(OUTPUT_DIR, "title.txt")
+    extrait_file = os.path.join(OUTPUT_DIR, "script_extrait.txt")
+    netoye_file = os.path.join(OUTPUT_DIR, "script_nettoye.txt")
+    
+    extract_title_and_script(input_script, title_file, extrait_file)
+    clean_script(extrait_file, netoye_file)
+    
+    with open(netoye_file, "r", encoding="utf-8") as f:
+        script_text = f.read()
+    chunks = split_text_smart(script_text, 4900)
+    audio_files = generate_audio(chunks)
+    print("✅ Génération audio terminée.")
+    return audio_files
+
+##############################
+# PARTIE 2 – Génération du SRT avec Whisper
 ##############################
 
 def get_audio_duration(audio_path):
@@ -33,6 +164,32 @@ def get_audio_duration(audio_path):
         audio_path
     ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     return float(result.stdout.decode().strip())
+
+def generate_srt_with_srt_generator(audio_file, output_srt):
+    """
+    Génère le fichier SRT en utilisant le sous-module srt_generator directement.
+    Ce module utilise Whisper avec des optimisations anti-hallucination.
+    """
+    print("🔄 Génération SRT avec le sous-module srt_generator...")
+    
+    # Importer le module srt_generator
+    sys.path.insert(0, os.path.join(os.getcwd(), "subs_generator"))
+    try:
+        from srt_generator import generate_srt # type: ignore
+        
+        # Appeler directement la fonction generate_srt
+        generated_srt_path = generate_srt(audio_file, output_srt)
+        print(f"✅ Fichier SRT généré avec succès: {generated_srt_path}")
+        
+        return generated_srt_path
+        
+    except Exception as e:
+        print(f"❌ Erreur lors de la génération SRT: {e}")
+        raise
+    finally:
+        # Nettoyer le path ajouté
+        if os.path.join(os.getcwd(), "subs_generator") in sys.path:
+            sys.path.remove(os.path.join(os.getcwd(), "subs_generator"))
 
 def select_random_background_music():
     """
@@ -61,9 +218,103 @@ def select_random_background_music():
     print(f"🎵 Musique de fond sélectionnée aléatoirement : {selected_file}")
     return selected_path
 
+def shift_srt_timing(input_srt, output_srt, delay_seconds=2):
+    """
+    Décale tous les timecodes du fichier SRT de delay_seconds secondes.
+    """
+    with open(input_srt, 'r', encoding='utf-8') as f:
+        content = f.read()
+    
+    # Pattern pour matcher les timecodes SRT (HH:MM:SS,mmm --> HH:MM:SS,mmm)
+    import re
+    timecode_pattern = r'(\d{2}):(\d{2}):(\d{2}),(\d{3}) --> (\d{2}):(\d{2}):(\d{2}),(\d{3})'
+    
+    def shift_timecode(match):
+        # Extraire les composants du timecode de début
+        start_h, start_m, start_s, start_ms = map(int, match.groups()[:4])
+        # Extraire les composants du timecode de fin
+        end_h, end_m, end_s, end_ms = map(int, match.groups()[4:])
+        
+        # Convertir en millisecondes totales
+        start_total_ms = (start_h * 3600 + start_m * 60 + start_s) * 1000 + start_ms
+        end_total_ms = (end_h * 3600 + end_m * 60 + end_s) * 1000 + end_ms
+        
+        # Ajouter le délai
+        delay_ms = delay_seconds * 1000
+        start_total_ms += delay_ms
+        end_total_ms += delay_ms
+        
+        # Reconvertir en format HH:MM:SS,mmm
+        def ms_to_timecode(total_ms):
+            hours = total_ms // (3600 * 1000)
+            minutes = (total_ms % (3600 * 1000)) // (60 * 1000)
+            seconds = (total_ms % (60 * 1000)) // 1000
+            milliseconds = total_ms % 1000
+            return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
+        
+        start_tc = ms_to_timecode(start_total_ms)
+        end_tc = ms_to_timecode(end_total_ms)
+        
+        return f"{start_tc} --> {end_tc}"
+    
+    # Remplacer tous les timecodes
+    shifted_content = re.sub(timecode_pattern, shift_timecode, content)
+    
+    with open(output_srt, 'w', encoding='utf-8') as f:
+        f.write(shifted_content)
+    
+    print(f"✅ Fichier SRT décalé de +{delay_seconds}s sauvegardé dans {output_srt}")
+
+
+##############################
+# PARTIE 3 – Génération vidéo avec FFmpeg
+##############################
+
+def merge_audio_files(audio_files, output):
+    """Fusionne des fichiers audio avec insertion d'une pause entre chaque segment."""
+    silence = os.path.join(OUTPUT_DIR, "silence.mp3")
+    if not os.path.exists(silence):
+        cmd = [
+            "ffmpeg", "-y",
+            "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+            "-t", "1", silence
+        ]
+        subprocess.run(cmd, check=True)
+    merge_list = []
+    for part in audio_files:
+        abs_path = os.path.abspath(part).replace('\\', '/')
+        merge_list.append(abs_path)
+    list_file = os.path.join(OUTPUT_DIR, "file_list.txt")
+    with open(list_file, "w", encoding="utf-8") as f:
+        for item in merge_list:
+            f.write(f"file '{item}'\n")
+    cmd = [
+        "ffmpeg", "-y",
+        "-f", "concat", "-safe", "0",
+        "-i", list_file,
+        "-ar", "44100",  # force sample rate
+        "-c:a", "libmp3lame", "-q:a", "2",
+        output
+    ]
+    subprocess.run(cmd, check=True)
+    print(f"✅ Audios fusionnés dans {output}")
+
+def boost_audio(input_file, output_file, boost_db=10):
+    """
+    Booste le volume de l'audio du fichier d'entrée par le nombre de décibels spécifié.
+    """
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", input_file,
+        "-af", f"volume={boost_db}dB",
+        output_file
+    ]
+    subprocess.run(cmd, check=True)
+    print(f"✅ Audio boosté de +{boost_db} dB sauvegardé dans {output_file}")
+
 def normalize_video(input_video, output_video):
     """
-    Normalise une vidéo à 1920x1080, 30fps, H264.
+    Normalise une vidéo à 1920x1080, 30fps, H264 - comme dans pexels_video_merger.py
     Utilise NVENC si disponible, sinon QSV, sinon CPU.
     """
     print(f"  🔄 Normalisation: {os.path.basename(input_video)}")
@@ -82,7 +333,7 @@ def normalize_video(input_video, output_video):
         "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
         "-pix_fmt", "yuv420p",
         "-r", "30",
-        "-an",
+        "-an",  # Pas d'audio
         "-movflags", "+faststart",
         output_video
     ]
@@ -147,16 +398,19 @@ def normalize_video(input_video, output_video):
 def generate_background_video_from_local(target_duration, output_video):
     """
     Génère une vidéo de fond en utilisant des vidéos locales du dossier videos_db.
+    Sélectionne aléatoirement des vidéos, les normalise à 1920x1080@30fps, puis les concatène.
+    La durée correspond à l'audio principal + 4 secondes (2s avant + 2s après).
     """
     # Ajouter 4 secondes à la durée cible (2s avant + 2s après)
     extended_duration = target_duration + 4
-    print(f"🔄 Génération vidéo de fond pour {extended_duration:.1f}s (audio: {target_duration:.1f}s + 4s marge)...")
+    print(f"🔄 Génération vidéo de fond pour une durée de {extended_duration:.1f} secondes (audio: {target_duration:.1f}s + 4s de marge)...")
     
+    # Chemin vers le dossier des vidéos locales
     videos_dir = os.path.join(os.getcwd(), "videos_db")
     
     if not os.path.exists(videos_dir):
         raise FileNotFoundError(f"Le dossier videos_db n'existe pas : {videos_dir}")
-    
+
     # Lister tous les fichiers vidéo
     video_extensions = ['.mp4', '.avi', '.mov', '.mkv', '.webm']
     video_files = []
@@ -168,9 +422,9 @@ def generate_background_video_from_local(target_duration, output_video):
     if not video_files:
         raise FileNotFoundError(f"Aucun fichier vidéo trouvé dans {videos_dir}")
     
-    print(f"📹 {len(video_files)} vidéos disponibles")
+    print(f"📹 {len(video_files)} vidéos disponibles dans videos_db")
     
-    # Sélectionner aléatoirement des vidéos
+    # Sélectionner aléatoirement des vidéos jusqu'à atteindre la durée cible
     selected_videos = []
     total_duration = 0
     
@@ -179,67 +433,85 @@ def generate_background_video_from_local(target_duration, output_video):
         video_duration = get_audio_duration(video)
         selected_videos.append(video)
         total_duration += video_duration
-        print(f"  ✓ {os.path.basename(video)} ({video_duration:.1f}s) - Total: {total_duration:.1f}s")
+        print(f"  ✓ Sélectionné: {os.path.basename(video)} ({video_duration:.1f}s) - Total: {total_duration:.1f}s")
     
-    print(f"📊 {len(selected_videos)} vidéo(s) sélectionnée(s)")
+    print(f"📊 {len(selected_videos)} vidéo(s) sélectionnée(s) pour un total de {total_duration:.1f}s")
     
-    # Créer dossier temporaire
+    # Créer un dossier temporaire pour les vidéos normalisées
     temp_dir = os.path.join(OUTPUT_DIR, "temp_normalized")
     if not os.path.exists(temp_dir):
         os.makedirs(temp_dir)
     
-    # Normaliser chaque vidéo
-    print(f"🔧 Normalisation à 1920x1080@30fps...")
+    # Normaliser chaque vidéo sélectionnée
+    print(f"🔧 Normalisation des vidéos à 1920x1080@30fps...")
     normalized_videos = []
     for i, video in enumerate(selected_videos):
         normalized_path = os.path.join(temp_dir, f"normalized_{i}.mp4")
         if normalize_video(video, normalized_path):
             normalized_videos.append(normalized_path)
+        else:
+            print(f"    ⚠️  Échec normalisation, vidéo ignorée: {os.path.basename(video)}")
     
     if not normalized_videos:
         raise Exception("Aucune vidéo n'a pu être normalisée")
     
-    # Concaténer ou découper
+    # Si une seule vidéo normalisée suffit
     if len(normalized_videos) == 1:
+        print(f"🎬 Une seule vidéo normalisée, découpage à {extended_duration:.1f}s")
         cmd = [
             "ffmpeg", "-y",
             "-i", normalized_videos[0],
             "-t", str(extended_duration),
-            "-c:v", "copy",
+            "-c:v", "copy",  # Pas de ré-encodage, déjà normalisée
             "-an",
             output_video
         ]
         subprocess.run(cmd, check=True)
     else:
+        # Concaténer les vidéos normalisées
+        print(f"🔗 Concaténation de {len(normalized_videos)} vidéo(s) normalisée(s)...")
+        
+        # Créer un fichier de liste temporaire pour ffmpeg
         concat_file = os.path.join(temp_dir, "concat_list.txt")
         with open(concat_file, 'w', encoding='utf-8') as f:
             for video in normalized_videos:
+                # Utiliser le format file pour ffmpeg concat
                 f.write(f"file '{os.path.abspath(video)}'\n")
         
+        # Concaténer et couper à la durée exacte (copy codec car déjà normalisées)
         cmd = [
             "ffmpeg", "-y",
             "-f", "concat",
             "-safe", "0",
             "-i", concat_file,
             "-t", str(extended_duration),
-            "-c:v", "copy",
+            "-c:v", "copy",  # Pas de ré-encodage
             "-an",
             output_video
         ]
         subprocess.run(cmd, check=True)
     
-    # Nettoyer
+    # Nettoyer le dossier temporaire
+    print(f"🧹 Nettoyage des fichiers temporaires...")
     shutil.rmtree(temp_dir)
-    print(f"✅ Vidéo de fond générée : {output_video}")
+    
+    print(f"✅ Vidéo de fond générée avec succès: {output_video}")
+    
+    # Vérifier la durée de la vidéo générée
+    actual_duration = get_audio_duration(output_video)
+    print(f"📊 Durée vidéo générée : {actual_duration:.1f}s (cible : {extended_duration:.1f}s)")
     
     return output_video
 
 def mix_audio_with_background_delayed(voice_audio, bg_music, output, voice_delay_seconds=2):
     """
-    Mixe l'audio principal avec la musique d'ambiance.
+    Mixe l'audio principal boosté avec la musique d'ambiance.
+    L'audio principal est retardé de voice_delay_seconds secondes.
+    La musique d'ambiance démarre immédiatement et couvre toute la durée.
     """
+    # Calculer la durée totale nécessaire (durée de l'audio vocal + 2s avant + 2s après)
     voice_duration = get_audio_duration(voice_audio)
-    total_duration = voice_duration + 4
+    total_duration = voice_duration + 4  # 2s avant + 2s après = 4s au total
     
     cmd = [
         "ffmpeg", "-y",
@@ -252,54 +524,48 @@ def mix_audio_with_background_delayed(voice_audio, bg_music, output, voice_delay
         output
     ]
     subprocess.run(cmd, check=True)
-    print(f"✅ Audio mixé : {output} (durée: {total_duration:.1f}s)")
+    print(f"✅ Audio mixé avec délai de {voice_delay_seconds}s généré : {output} (durée: {total_duration:.1f}s)")
 
-def shift_srt_timing(input_srt, output_srt, delay_seconds=2):
+def generate_final_video(video_input, audio_input, subtitle_file, output):
     """
-    Décale tous les timecodes du fichier SRT de delay_seconds secondes.
+    Génère la vidéo finale en incrustant des sous-titres décalés.
+    La vidéo est ré-encodée en gardant une haute qualité (preset veryslow, CRF 15)
+    et le son est mappé correctement.
     """
-    with open(input_srt, 'r', encoding='utf-8') as f:
-        content = f.read()
+    # Créer un fichier SRT décalé de 2 secondes
+    shifted_srt = subtitle_file.replace('.srt', '_shifted.srt')
+    shift_srt_timing(subtitle_file, shifted_srt, delay_seconds=2)
     
-    # Pattern pour matcher les timecodes SRT (HH:MM:SS,mmm --> HH:MM:SS,mmm)
-    import re
-    timecode_pattern = r'(\d{2}):(\d{2}):(\d{2}),(\d{3}) --> (\d{2}):(\d{2}):(\d{2}),(\d{3})'
-    
-    def shift_timecode(match):
-        # Extraire les composants du timecode de début
-        start_h, start_m, start_s, start_ms = map(int, match.groups()[:4])
-        # Extraire les composants du timecode de fin
-        end_h, end_m, end_s, end_ms = map(int, match.groups()[4:])
-        
-        # Convertir en millisecondes totales
-        start_total_ms = (start_h * 3600 + start_m * 60 + start_s) * 1000 + start_ms
-        end_total_ms = (end_h * 3600 + end_m * 60 + end_s) * 1000 + end_ms
-        
-        # Ajouter le délai
-        delay_ms = delay_seconds * 1000
-        start_total_ms += delay_ms
-        end_total_ms += delay_ms
-        
-        # Reconvertir en format HH:MM:SS,mmm
-        def ms_to_timecode(total_ms):
-            hours = total_ms // (3600 * 1000)
-            minutes = (total_ms % (3600 * 1000)) // (60 * 1000)
-            seconds = (total_ms % (60 * 1000)) // 1000
-            milliseconds = total_ms % 1000
-            return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
-        
-        start_tc = ms_to_timecode(start_total_ms)
-        end_tc = ms_to_timecode(end_total_ms)
-        
-        return f"{start_tc} --> {end_tc}"
-    
-    # Remplacer tous les timecodes
-    shifted_content = re.sub(timecode_pattern, shift_timecode, content)
-    
-    with open(output_srt, 'w', encoding='utf-8') as f:
-        f.write(shifted_content)
-    
-    print(f"✅ Fichier SRT décalé de +{delay_seconds}s sauvegardé dans {output_srt}")
+    abs_sub = os.path.abspath(shifted_srt)
+    # Handle Windows path for FFmpeg subtitle filter
+    if len(abs_sub) > 1 and abs_sub[1] == ':':
+        # For Windows: C:\path -> C\:/path (escape colon, then replace remaining backslashes)
+        drive_letter = abs_sub[0]
+        path_remainder = abs_sub[2:].replace('\\', '/')  # Convert backslashes to forward slashes
+        abs_sub = drive_letter + '\\:' + path_remainder
+    else:
+        # For non-Windows paths, just convert backslashes
+        abs_sub = abs_sub.replace('\\', '/')
+    vf_filter = ("drawtext=text='La Sagesse Du Christ':fontfile='C\\:/Windows/Fonts/montserrat-regular.ttf':fontsize=24:fontcolor=white:x=50:y=50:shadowcolor=black:shadowx=2:shadowy=2,"
+                 "subtitles=filename='{}':force_style='FontName=Montserrat ExtraLight,FontSize=18,"
+                 "OutlineColour=&H000000&,BorderStyle=1,Outline=1,Alignment=10,MarginV=0,MarginL=0,MarginR=0'").format(abs_sub)
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", video_input,
+        "-i", audio_input,
+        "-vf", vf_filter,
+        "-map", "0:v",
+        "-map", "1:a",
+        "-c:v", "libx264",
+        "-preset", "medium",
+        "-crf", "18",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        output
+    ]
+    subprocess.run(cmd, check=True)
+    print(f"✅ Vidéo finale générée : {output}")
+
 
 ##############################
 # FONCTIONS INTELLIGENTES - DÉTECTION DES TRANSITIONS
@@ -1770,150 +2036,91 @@ def generate_final_video_standard(video_input, audio_input, subtitle_file, outpu
         return False
 
 ##############################
-# PIPELINE PRINCIPAL
+# PIPELINE INTÉGRÉ
 ##############################
-
-def detect_input_files():
-    """
-    Détecte automatiquement les fichiers d'entrée dans WORKING_DIR.
-    Cherche : 1 fichier .txt, 1 fichier .srt, 1 fichier .mp3
-    
-    Returns:
-        tuple: (txt_path, srt_path, audio_path) ou None si erreur
-    """
-    print("🔍 Détection automatique des fichiers d'entrée...")
-    
-    if not os.path.exists(WORKING_DIR):
-        print(f"❌ Dossier de travail introuvable : {WORKING_DIR}")
-        return None
-    
-    # Lister tous les fichiers
-    all_files = os.listdir(WORKING_DIR)
-    
-    # Filtrer par extension
-    txt_files = [f for f in all_files if f.lower().endswith('.txt')]
-    srt_files = [f for f in all_files if f.lower().endswith('.srt')]
-    mp3_files = [f for f in all_files if f.lower().endswith('.mp3')]
-    
-    # Vérifier qu'on a exactement 1 de chaque
-    errors = []
-    
-    if len(txt_files) == 0:
-        errors.append("❌ Aucun fichier .txt trouvé")
-    elif len(txt_files) > 1:
-        errors.append(f"⚠️  Plusieurs fichiers .txt trouvés : {', '.join(txt_files)}")
-        print(f"   → Utilisation du premier : {txt_files[0]}")
-    
-    if len(srt_files) == 0:
-        errors.append("❌ Aucun fichier .srt trouvé")
-    elif len(srt_files) > 1:
-        errors.append(f"⚠️  Plusieurs fichiers .srt trouvés : {', '.join(srt_files)}")
-        print(f"   → Utilisation du premier : {srt_files[0]}")
-    
-    if len(mp3_files) == 0:
-        errors.append("❌ Aucun fichier .mp3 trouvé")
-    elif len(mp3_files) > 1:
-        errors.append(f"⚠️  Plusieurs fichiers .mp3 trouvés : {', '.join(mp3_files)}")
-        print(f"   → Utilisation du premier : {mp3_files[0]}")
-    
-    # Afficher les erreurs critiques
-    critical_errors = [e for e in errors if e.startswith("❌")]
-    if critical_errors:
-        for error in errors:
-            print(error)
-        print(f"\n💡 Assurez-vous d'avoir exactement 1 fichier de chaque type dans {WORKING_DIR}")
-        return None
-    
-    # Construire les chemins complets
-    txt_path = os.path.join(WORKING_DIR, txt_files[0])
-    srt_path = os.path.join(WORKING_DIR, srt_files[0])
-    audio_path = os.path.join(WORKING_DIR, mp3_files[0])
-    
-    print(f"✅ Fichier texte    : {txt_files[0]}")
-    print(f"✅ Fichier SRT      : {srt_files[0]}")
-    print(f"✅ Fichier audio    : {mp3_files[0]}\n")
-    
-    return txt_path, srt_path, audio_path
 
 def main():
     """
-    Pipeline complet INTELLIGENT - VERSION FINALE AVEC FALLBACK
-    """
-    print("🚀 Démarrage du pipeline - Video_Generator_Dark_Intelligent")
-    print("🧠 Mode INTELLIGENT : Pauses de prière + Overlays bibliques")
-    print(f"📁 Dossier de travail: {WORKING_DIR}")
-    print(f"📁 Dossier de sortie: {OUTPUT_DIR}\n")
+    Pipeline complet pour générer une vidéo avec audio, sous-titres et vidéos locales.
+    Utilise des vidéos du dossier videos_db au lieu de Pexels/Pixabay.
     
-    # ÉTAPE 1: Détection fichiers
-    result = detect_input_files()
-    if result is None:
+    ✅ VERSION MISE À JOUR : Utilise la nouvelle méthode hybride de détection des versets
+    """
+    print("🚀 Démarrage du pipeline Video_Gen_Full")
+    print("🧠 Mode INTELLIGENT activé - Détection automatique des transitions de prière")
+    print(f"📁 Dossier de travail: {WORKING_DIR}")
+    print(f"📁 Dossier de sortie: {OUTPUT_DIR}")
+    
+    # PARTIE 1 – Génération audio
+    input_script = os.path.join(WORKING_DIR, "script_video.txt")
+    audio_parts = process_audio_generation(input_script)
+    if not audio_parts:
+        print("❌ Aucun fichier audio généré.")
         return
     
-    source_text_path, srt_path, voice_audio = result
+    # Merge audio parts
+    merged_audio = os.path.join(OUTPUT_DIR, "full_audio.mp3")
+    merge_audio_files(audio_parts, merged_audio)
     
-    # ÉTAPE 2: Détection transitions + pauses
-    print("🧠 ÉTAPE 2/7 : Détection des transitions de prière...")
-    transition_points = detect_prayer_transitions(srt_path)
+    # Boost audio volume
+    boosted_audio = os.path.join(OUTPUT_DIR, "full_audio_boosted.mp3")
+    boost_audio(merged_audio, boosted_audio, boost_db=10)
+    
+    # PARTIE 2 – Génération du SRT avec le sous-module srt_generator
+    final_srt = os.path.join(OUTPUT_DIR, "final_subtitles.srt")
+    generate_srt_with_srt_generator(boosted_audio, final_srt)
+    
+    # PARTIE 2.5 – TRAITEMENT INTELLIGENT : Détection des transitions de prière
+    print("\\n🧠 TRAITEMENT INTELLIGENT - Analyse des transitions de prière...")
+    transition_points = detect_prayer_transitions(final_srt)
     
     if transition_points:
         print(f"✅ {len(transition_points)} transition(s) détectée(s)")
         
-        voice_audio_with_pauses = os.path.join(OUTPUT_DIR, "voice_audio_with_pauses.mp3")
-        insert_silence_in_audio(voice_audio, voice_audio_with_pauses, transition_points, pause_duration=3.0)
+        # Insérer les silences dans l'audio boosté
+        boosted_audio_with_pauses = os.path.join(OUTPUT_DIR, "full_audio_boosted_with_pauses.mp3")
+        insert_silence_in_audio(boosted_audio, boosted_audio_with_pauses, transition_points, pause_duration=3.0)
         
-        srt_file_adjusted = os.path.join(OUTPUT_DIR, "subtitles_adjusted.srt")
-        adjust_srt_with_pauses(srt_path, srt_file_adjusted, transition_points, pause_duration_ms=3000)
+        # Ajuster le SRT avec les nouvelles pauses
+        final_srt_adjusted = os.path.join(OUTPUT_DIR, "final_subtitles_adjusted.srt")
+        adjust_srt_with_pauses(final_srt, final_srt_adjusted, transition_points, pause_duration_ms=3000)
         
-        voice_audio = voice_audio_with_pauses
-        srt_path = srt_file_adjusted
-        print("🎯 Pauses de méditation insérées\n")
+        # Utiliser les fichiers ajustés pour la suite
+        boosted_audio = boosted_audio_with_pauses
+        final_srt = final_srt_adjusted
+        print("🎯 Fichiers audio et SRT ajustés avec les pauses de méditation")
     else:
-        print("ℹ️  Aucune transition détectée\n")
-        voice_audio_copy = os.path.join(OUTPUT_DIR, "voice_audio.mp3")
-        srt_file_copy = os.path.join(OUTPUT_DIR, "subtitles.srt")
-        shutil.copy2(voice_audio, voice_audio_copy)
-        shutil.copy2(srt_path, srt_file_copy)
-        voice_audio = voice_audio_copy
-        srt_path = srt_file_copy
+        print("ℹ️  Aucune transition détectée, pipeline standard utilisé")
     
     # ============================================================
-    # ÉTAPE 3: Détection des versets bibliques (MÉTHODE HYBRIDE)
+    # PARTIE 2.6 – DÉTECTION DES VERSETS BIBLIQUES (MÉTHODE HYBRIDE)
     # ============================================================
-    print("📖 ÉTAPE 3/7 : Détection des versets bibliques...")
+    print("\\n📖 ÉTAPE 2.6/7 : Détection des versets bibliques...")
+    source_text_path = os.path.join(OUTPUT_DIR, "script_nettoye.txt")
     
-    # ✅ NOUVELLE FONCTION HYBRIDE (remplace les 3 anciennes)
-    verses_with_timestamps = extract_verses_with_timestamps(source_text_path, srt_path)
+    # ✅ NOUVELLE FONCTION HYBRIDE (remplace les 3 anciennes fonctions)
+    verses_with_timestamps = extract_verses_with_timestamps(source_text_path, final_srt)
     
-    # ÉTAPE 4: Génération vidéo de fond
-    print("\n🎬 ÉTAPE 4/7 : Génération de la vidéo de fond...")
-    audio_duration = get_audio_duration(voice_audio)
+    # PARTIE 3 – Génération vidéo avec vidéos locales
+    audio_duration = get_audio_duration(boosted_audio)
+    print(f"\\n📊 Durée de l'audio final (avec pauses éventuelles): {audio_duration:.1f} secondes")
     background_video = os.path.join(OUTPUT_DIR, "background_video.mp4")
     generate_background_video_from_local(audio_duration, background_video)
-    print()
     
-    # ÉTAPE 5: Sélection musique
-    print("🎵 ÉTAPE 5/7 : Sélection de la musique de fond...")
     background_music = select_random_background_music()
-    print()
-    
-    # ÉTAPE 6: Mixage audio
-    print("🎚️  ÉTAPE 6/7 : Mixage audio...")
     mixed_audio = os.path.join(OUTPUT_DIR, "mixed_audio.m4a")
-    mix_audio_with_background_delayed(voice_audio, background_music, mixed_audio, voice_delay_seconds=2)
-    print()
+    mix_audio_with_background_delayed(boosted_audio, background_music, mixed_audio, voice_delay_seconds=2)
     
-    # ÉTAPE 7: Vidéo finale
-    print("🎨 ÉTAPE 7/7 : Génération vidéo finale...")
+    # ============================================================
+    # PARTIE 4 – GÉNÉRATION VIDÉO FINALE (AVEC OU SANS OVERLAYS)
+    # ============================================================
     
     # Créer SRT décalé de 2 secondes
     shifted_srt = os.path.join(OUTPUT_DIR, "subtitles_shifted.srt")
-    shift_srt_timing(srt_path, shifted_srt, delay_seconds=2)  # ✅ Utiliser srt_path au lieu de output_srt_path
+    shift_srt_timing(final_srt, shifted_srt, delay_seconds=2)
     
-    # ============================================================
-    # DÉCISION : MODE OVERLAYS ou MODE STANDARD
-    # ============================================================
     if verses_with_timestamps:
-        print("\n📖 MODE OVERLAYS BIBLIQUES activé")
+        print("\\n🎨 ÉTAPE 4/7 : Génération vidéo finale avec overlays bibliques...")
         
         # ✅ AJUSTER LES TIMESTAMPS DES VERSETS POUR LE SHIFT (+2s)
         verses_shifted = []
@@ -1939,19 +2146,19 @@ def main():
             final_video
         )
         
-        print("\n" + "="*80)
-        print("🎉 PIPELINE COMPLET TERMINÉ - MODE OVERLAYS BIBLIQUES")
+        print("\\n" + "="*80)
+        print("🎉 PIPELINE COMPLET TERMINÉ - MODE INTELLIGENT")
         print("="*80)
         print(f"🎬 Vidéo finale      : {final_video}")
         print(f"📖 Versets overlays  : {len(verses_shifted)}")
         print(f"⏸️  Pauses prière     : {len(transition_points) if transition_points else 0}")
         print(f"📁 Dossier sortie    : {OUTPUT_DIR}")
-        print("="*80 + "\n")
+        print("="*80 + "\\n")
     
     else:
         # ✅ MODE STANDARD (sans overlays)
-        print("\n⚠️  Aucun verset biblique détecté")
-        print("🎬 Génération en MODE STANDARD (sans overlays)...\n")
+        print("\\n⚠️  Aucun verset biblique détecté")
+        print("🎬 Génération en MODE STANDARD (sans overlays)...\\n")
         
         final_video = os.path.join(OUTPUT_DIR, "final_video_standard.mp4")
         
@@ -1963,18 +2170,17 @@ def main():
         )
         
         if success:
-            print("\n" + "="*80)
+            print("\\n" + "="*80)
             print("🎉 PIPELINE COMPLET TERMINÉ - MODE STANDARD")
             print("="*80)
             print(f"🎬 Vidéo finale      : {final_video}")
             print(f"📖 Mode             : Standard (sans overlays bibliques)")
             print(f"⏸️  Pauses prière     : {len(transition_points) if transition_points else 0}")
             print(f"📁 Dossier sortie    : {OUTPUT_DIR}")
-            print("="*80 + "\n")
+            print("="*80 + "\\n")
         else:
-            print("\n❌ Échec de la génération de la vidéo finale")
+            print("\\n❌ Échec de la génération de la vidéo finale")
 
 
 if __name__ == "__main__":
     main()
-
