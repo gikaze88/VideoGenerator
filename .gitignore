@@ -342,7 +342,20 @@ models/
 checkpoints/
 
 # ========================================
-# 12. MISCELLANEOUS
+# 12. FRONTEND (Node.js)
+# ========================================
+frontend/node_modules/
+frontend/dist/
+
+# ========================================
+# 13. BACKEND APPLICATION DATA
+# ========================================
+outputs/*/
+!outputs/.gitkeep
+backend/jobs.db
+
+# ========================================
+# 14. MISCELLANEOUS
 # ========================================
 # Current requirements (using main requirements.txt instead)
 current_requirements.txt
