@@ -9,6 +9,16 @@ import random
 from datetime import timedelta, datetime
 from dotenv import load_dotenv
 import requests
+from tqdm import tqdm
+from pydub import AudioSegment
+from pydub.effects import normalize, compress_dynamic_range
+
+# --- Imports pour TTS Local ---
+from TTS.api import TTS
+from TTS.utils.radam import RAdam
+from collections import defaultdict
+import torch
+import torch.serialization
 
 # --- Monkey-patch for Windows (Whisper) ---
 _orig_find_library = ctypes.util.find_library
@@ -19,20 +29,60 @@ def patched_find_library(name):
     return result
 ctypes.util.find_library = patched_find_library
 
-# Charger l'environnement et clés API
+# --- Patch torch.load pour TTS ---
+_orig_torch_load = torch.load
+def custom_torch_load(*args, **kwargs):
+    kwargs["weights_only"] = False
+    return _orig_torch_load(*args, **kwargs)
+torch.load = custom_torch_load
+
+torch.serialization.add_safe_globals([RAdam, defaultdict])
+
+# Charger l'environnement
 load_dotenv()
-ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
-ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID")
-API_URL = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}"
 
 # Définir le dossier de travail pour les fichiers d'entrée
-WORKING_DIR = os.path.join(os.getcwd(), "working_dir_simple")
+WORKING_DIR = os.path.join(os.getcwd(), "working_dir_full_local")
 
 # Créer le dossier de sortie : exemple "Project_DDMMYYYY_HHMMSS"
 OUTPUT_DIR = "Project_" + datetime.now().strftime("%d%m%Y_%H%M%S")
 if not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR)
 
+##############################
+# INITIALISATION TTS LOCAL
+##############################
+
+# Vérifier la disponibilité de CUDA
+cuda_available = torch.cuda.is_available()
+cuda_version = torch.version.cuda
+print(f"🔧 CUDA disponible: {cuda_available}")
+if cuda_version:
+    print(f"🔧 Version CUDA: {cuda_version}")
+
+if cuda_available:
+    print(f"🔧 Nombre de GPU disponibles: {torch.cuda.device_count()}")
+    for i in range(torch.cuda.device_count()):
+        print(f"   GPU {i}: {torch.cuda.get_device_name(i)}")
+
+device = "cuda" if cuda_available else "cpu"
+print(f"\n💻 Configuration:")
+print(f"   Device: {device.upper()}")
+if device == "cuda":
+    print(f"   GPU: {torch.cuda.get_device_name(0)}")
+
+# Charger le modèle XTTS v2 (NOUVELLE SYNTAXE)
+print(f"\n⏳ Chargement du modèle XTTS v2...")
+tts = TTS(
+    model_name="tts_models/multilingual/multi-dataset/xtts_v2",
+    progress_bar=True
+)
+
+tts.to(device)
+# Monkey-patch _check_arguments pour ignorer tous les arguments
+tts._check_arguments = lambda *args, **kwargs: None
+
+print("✅ Modèle TTS chargé avec succès")
 ##############################
 # PARTIE 1 – Préparation & génération audio
 ##############################
@@ -71,17 +121,81 @@ def clean_script(input_file, output_file):
     except Exception as e:
         print(f"❌ Erreur lors du nettoyage : {e}")
 
-def split_text_smart(text, max_length=4900):
-    """Découpe intelligemment le texte par phrase afin d'éviter de casser une phrase."""
-    chunks = []
-    while len(text) > max_length:
-        split_index = text.rfind(".", 0, max_length)
-        if split_index == -1:
-            split_index = max_length
-        chunks.append(text[:split_index+1].strip())
-        text = text[split_index+1:].strip()
-    chunks.append(text.strip())
-    return chunks
+def normaliser_texte_pour_tts(text):
+    """
+    Normalise le texte pour éviter les comportements bizarres du TTS.
+    Gère les guillemets, apostrophes, et autres caractères problématiques.
+    
+    Args:
+        text: Texte original
+    
+    Returns:
+        Texte normalisé pour TTS
+    """
+    # 1. Remplacer les guillemets français par rien ou par des virgules
+    text = text.replace('«', ',')   # Guillemet ouvrant français
+    text = text.replace('»', ',')   # Guillemet fermant français
+    
+    # 2. Remplacer les guillemets anglais par rien ou par des virgules
+    text = text.replace('"', ',')   # Guillemet double standard
+    text = text.replace('"', ',')   # Guillemet ouvrant typographique
+    text = text.replace('"', ',')   # Guillemet fermant typographique
+    
+    # 3. Remplacer les guillemets simples typographiques
+    text = text.replace(''', "'")   # Apostrophe typographique → apostrophe simple
+    text = text.replace(''', "'")   # Apostrophe inversée
+    text = text.replace('‚', ',')   # Virgule basse
+    
+    # 4. Normaliser les tirets (longs/cadratins)
+    text = text.replace('—', ', ')  # Tiret cadratin
+    text = text.replace('–', ', ')  # Tiret demi-cadratin
+    text = text.replace('−', '-')   # Signe moins
+    
+    # 5. Nettoyer les espaces multiples
+    text = re.sub(r'\s+', ' ', text)
+    
+    # 6. Nettoyer les virgules multiples
+    text = re.sub(r',\s*,+', ',', text)
+    
+    # 7. Supprimer les espaces avant la ponctuation (sauf si on veut garder le style français)
+    # text = re.sub(r'\s+([.!?,;:])', r'\1', text)
+    
+    return text.strip()
+
+def normaliser_texte_pour_tts_version_douce(text):
+    """
+    Version "douce" qui garde plus de structure mais normalise quand même.
+    Remplace les guillemets par "dit" ou des marqueurs vocaux.
+    """
+    # Remplacer les citations par des marqueurs verbaux
+    # « ... » devient: dit ... fin de citation
+    
+    # Pattern pour détecter les citations
+    citation_pattern = r'«\s*(.*?)\s*»'
+    
+    def remplacer_citation(match):
+        contenu = match.group(1)
+        # Tu peux choisir:
+        # Option 1: Juste enlever les guillemets
+        return contenu
+        # Option 2: Ajouter un marqueur verbal (peut être verbeux)
+        # return f"citation: {contenu}, fin de citation"
+    
+    text = re.sub(citation_pattern, remplacer_citation, text)
+    
+    # Nettoyer les autres guillemets
+    text = text.replace('"', '')
+    text = text.replace('"', '')
+    text = text.replace('"', '')
+    
+    # Normaliser apostrophes
+    text = text.replace(''', "'")
+    text = text.replace(''', "'")
+    
+    # Nettoyer espaces
+    text = re.sub(r'\s+', ' ', text)
+    
+    return text.strip()
 
 def normalize_audio(input_file, output_file, target_i=-23):
     """
@@ -97,54 +211,298 @@ def normalize_audio(input_file, output_file, target_i=-23):
     subprocess.run(cmd, check=True)
     print(f"✅ Audio normalisé sauvegardé dans {output_file}")
 
-def generate_audio(text_chunks):
-    """Génère et normalise des fichiers audio avec ElevenLabs pour chaque chunk."""
+def optimiser_audio_reference(fichier_entree, dossier_sortie, debut_sec=0, duree_sec=10):
+    """
+    Optimise l'audio de référence pour XTTS v2
+    
+    Args:
+        fichier_entree: Chemin vers l'audio de référence original
+        dossier_sortie: Dossier où sauvegarder l'audio optimisé
+        debut_sec: Début de l'extrait en secondes
+        duree_sec: Durée de l'extrait en secondes
+    
+    Returns:
+        Chemin vers l'audio optimisé
+    """
+    print(f"\n🔧 Optimisation de l'audio de référence...")
+    print(f"   Source: {fichier_entree}")
+    print(f"   Extraction: {debut_sec}s - {debut_sec + duree_sec}s")
+    
+    try:
+        # Charger l'audio
+        audio = AudioSegment.from_file(fichier_entree)
+        
+        # Extraire le segment souhaité
+        debut_ms = debut_sec * 1000
+        fin_ms = debut_ms + (duree_sec * 1000)
+        audio = audio[debut_ms:fin_ms]
+        
+        # Optimisations pour XTTS v2
+        audio = audio.set_frame_rate(22050)      # Fréquence optimale
+        audio = audio.set_channels(1)            # Mono
+        audio = normalize(audio)                 # Normaliser le volume
+        audio = compress_dynamic_range(audio)    # Compression dynamique
+        
+        # Filtres audio (enlever fréquences indésirables)
+        audio = audio.high_pass_filter(80)       # Enlever basses fréquences
+        audio = audio.low_pass_filter(8000)      # Enlever très hautes fréquences
+        
+        # Sauvegarder l'audio optimisé
+        fichier_sortie = os.path.join(dossier_sortie, "reference_optimisee.wav")
+        audio.export(
+            fichier_sortie,
+            format="wav",
+            parameters=["-ar", "22050", "-ac", "1", "-b:a", "256k"]
+        )
+        
+        duree_reelle = len(audio) / 1000
+        print(f"✅ Audio optimisé: {fichier_sortie} ({duree_reelle:.1f}s)")
+        
+        return fichier_sortie
+        
+    except Exception as e:
+        print(f"⚠️  Erreur lors de l'optimisation: {e}")
+        print(f"   Utilisation de l'audio original")
+        return fichier_entree
+
+def generate_audio_with_local_tts(text_chunks, debut_extrait=0, duree_extrait=10):
+    """
+    Génère et normalise des fichiers audio avec le modèle TTS local pour chaque chunk.
+    Utilise XTTS v2 avec une progress bar pour suivre l'avancement.
+    
+    Args:
+        text_chunks: Liste des chunks de texte à générer
+        debut_extrait: Position de départ dans l'audio de référence (en secondes)
+        duree_extrait: Durée de l'extrait à utiliser (en secondes)
+    """
     audio_files = []
-    for i, chunk in enumerate(text_chunks, 1):
-        audio_filename = os.path.join(OUTPUT_DIR, f"audio_part_{i}.mp3")
-        normalized_filename = os.path.join(OUTPUT_DIR, f"audio_part_{i}_norm.mp3")
-        headers = {
-            "xi-api-key": ELEVENLABS_API_KEY,
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "text": chunk,
-            "model_id": "eleven_multilingual_v1",
-            "voice_settings": {
-                "speed": 1.0,
-                "stability": 0.5,
-                "similarity_boost": 0.75
-            }
-        }
-        response = requests.post(API_URL, headers=headers, json=payload)
-        if response.status_code == 200:
-            with open(audio_filename, "wb") as af:
-                af.write(response.content)
-            print(f"✅ Audio généré : {audio_filename}")
-            # Normalize the generated audio to have consistent volume
+    
+    # Fichier de référence original
+    reference_audio_original = os.path.join(WORKING_DIR, "test_audio_ref.mp3")
+    
+    if not os.path.exists(reference_audio_original):
+        print(f"❌ Fichier de référence audio non trouvé : {reference_audio_original}")
+        raise FileNotFoundError(f"Fichier de référence audio manquant : {reference_audio_original}")
+    
+    print(f"🎤 Fichier de référence original : {reference_audio_original}")
+    
+    # ✨ OPTIMISATION DE L'AUDIO DE RÉFÉRENCE ✨
+    reference_audio_path = optimiser_audio_reference(
+        fichier_entree=reference_audio_original,
+        dossier_sortie=OUTPUT_DIR,  # ou WORKING_DIR selon ta préférence
+        debut_sec=debut_extrait,
+        duree_sec=duree_extrait
+    )
+    
+    print(f"✅ Utilisation de l'audio optimisé : {reference_audio_path}")
+    print(f"📝 Nombre de chunks à générer : {len(text_chunks)}")
+    
+    # Progress bar pour la génération audio
+    with tqdm(total=len(text_chunks), desc="🎙️  Génération audio TTS", unit="chunk", ncols=100, colour='green') as pbar:
+        for i, chunk in enumerate(text_chunks, 1):
+            pbar.set_postfix_str(f"Chunk {i}/{len(text_chunks)}")
+            
+            audio_filename = os.path.join(OUTPUT_DIR, f"audio_part_{i}.wav")
+            normalized_filename = os.path.join(OUTPUT_DIR, f"audio_part_{i}_norm.mp3")
+            
+            # Générer l'audio avec XTTS v2 (avec l'audio optimisé)
+            try:
+                tts.tts_to_file(
+                    text=chunk,
+                    file_path=audio_filename,
+                    speaker_wav=reference_audio_path,  # 👈 Audio optimisé
+                    language="fr",
+                    temperature=0.7,
+                    speed=1.0,
+                    repetition_penalty=5.0,
+                )
+            except Exception as e:
+                print(f"\n❌ Erreur lors de la génération du chunk {i}: {e}")
+                raise
+            
+            # Normaliser l'audio généré pour avoir un volume constant
             normalize_audio(audio_filename, normalized_filename)
             audio_files.append(normalized_filename)
-        else:
-            print(f"❌ Erreur audio : {response.json()}")
+            
+            pbar.update(1)
+    
+    print(f"✅ {len(audio_files)} fichiers audio générés avec succès")
+    return audio_files
+
+def split_into_sentences_smart(text):
+    """
+    Version AMÉLIORÉE avec normalisation pour TTS
+    """
+    # 🔧 NORMALISER D'ABORD pour éviter les comportements fous
+    text = normaliser_texte_pour_tts(text)
+    
+    # Nettoyer les espaces multiples
+    text = re.sub(r'\s+', ' ', text.strip())
+    
+    # Protéger les abréviations
+    abbreviations = {
+        "M.": "M§",
+        "Mr.": "Mr§",
+        "Mme.": "Mme§",
+        "Mlle.": "Mlle§",
+        "Dr.": "Dr§",
+        "Prof.": "Prof§",
+        "etc.": "etc§",
+        "ex.": "ex§",
+        "p.": "p§",
+        "vol.": "vol§",
+        "no.": "no§",
+        "av.": "av§",
+        "J.-C.": "J§-C§",
+        "cf.": "cf§",
+        "vs.": "vs§",
+    }
+    
+    for abbrev, replacement in abbreviations.items():
+        text = text.replace(abbrev, replacement)
+    
+    # Pattern pour fins de phrases
+    sentence_endings = r'([.!?]+)(?=\s+[A-ZÀÂÄÉÈÊËÏÎÔÙÛÜŸÇŒÆ]|$)'
+    parts = re.split(sentence_endings, text)
+    
+    sentences = []
+    i = 0
+    
+    while i < len(parts):
+        if parts[i].strip():
+            sentence = parts[i]
+            if i + 1 < len(parts) and re.match(r'^[.!?]+$', parts[i + 1]):
+                sentence += parts[i + 1]
+                i += 1
+            
+            # Restaurer les abréviations
+            for abbrev, replacement in abbreviations.items():
+                sentence = sentence.replace(replacement, abbrev)
+            
+            sentence = sentence.strip()
+            if sentence:
+                sentences.append(sentence)
+        
+        i += 1
+    
+    return sentences
+
+def generate_audio_one_sentence_one_chunk(text_complet):
+    """
+    Génère l'audio avec la stratégie: 1 PHRASE = 1 CHUNK = 1 AUDIO
+    
+    Args:
+        text_complet: Texte complet (string) à générer
+    
+    Returns:
+        Liste des fichiers audio générés (normalisés)
+    """
+    audio_files = []
+    
+    # 1. Vérifier le fichier de référence
+    reference_audio_original = os.path.join(WORKING_DIR, "test_audio_ref.mp3")
+    
+    if not os.path.exists(reference_audio_original):
+        print(f"❌ Fichier de référence audio non trouvé : {reference_audio_original}")
+        raise FileNotFoundError(f"Fichier de référence manquant : {reference_audio_original}")
+    
+    print(f"🎤 Fichier de référence original : {reference_audio_original}")
+    
+    # 2. Optimiser l'audio de référence
+    reference_audio_path = optimiser_audio_reference(
+        fichier_entree=reference_audio_original,
+        dossier_sortie=OUTPUT_DIR,
+        debut_sec=0,      # 👈 Ajuste si besoin
+        duree_sec=10      # 👈 Ajuste si besoin
+    )
+    
+    print(f"✅ Audio de référence optimisé : {reference_audio_path}")
+    
+    # 3. Découper le texte complet en phrases
+    print(f"\n📝 Découpage du texte en phrases...")
+    sentences = split_into_sentences_smart(text_complet)
+    print(f"   → {len(sentences)} phrases détectées")
+    
+    # Afficher quelques exemples
+    print(f"\n📋 Exemples de phrases:")
+    for i in range(min(5, len(sentences))):
+        preview = sentences[i][:100] + "..." if len(sentences[i]) > 100 else sentences[i]
+        print(f"   Phrase {i+1}: {preview}")
+    if len(sentences) > 5:
+        print(f"   ... et {len(sentences) - 5} autres phrases")
+    
+    # 4. Générer UN audio par phrase
+    print(f"\n🎙️  Génération de {len(sentences)} audios (1 phrase = 1 audio)...\n")
+    
+    with tqdm(total=len(sentences), desc="Génération audio", unit="phrase", ncols=100, colour='green') as pbar:
+        for i, sentence in enumerate(sentences, 1):
+            pbar.set_postfix_str(f"Phrase {i}/{len(sentences)}")
+            
+            # Noms de fichiers
+            audio_filename = os.path.join(OUTPUT_DIR, f"audio_part_{i}.wav")
+            normalized_filename = os.path.join(OUTPUT_DIR, f"audio_part_{i}_norm.mp3")
+            
+            # Générer l'audio pour cette phrase
+            try:
+                tts.tts_to_file(
+                    text=sentence,
+                    file_path=audio_filename,
+                    speaker_wav=reference_audio_path,
+                    language="fr",
+                    temperature=0.65,          # Stable
+                    speed=1.0,
+                    repetition_penalty=7.0,    # Strict
+                )
+            except Exception as e:
+                print(f"\n❌ Erreur génération phrase {i}: {e}")
+                print(f"   Phrase problématique: {sentence[:100]}...")
+                raise
+            
+            # Normaliser l'audio
+            normalize_audio(audio_filename, normalized_filename)
+            audio_files.append(normalized_filename)
+            
+            pbar.update(1)
+    
+    print(f"\n✅ {len(audio_files)} fichiers audio générés avec succès")
+    print(f"   Format: 1 phrase = 1 fichier audio")
+    
     return audio_files
 
 def process_audio_generation(input_script):
     """
-    Exécute l'extraction, le nettoyage et la génération des audios.
-    Renvoie la liste des fichiers audio générés.
+    VERSION FINALE avec normalisation anti-guillemets
     """
     title_file = os.path.join(OUTPUT_DIR, "title.txt")
     extrait_file = os.path.join(OUTPUT_DIR, "script_extrait.txt")
     netoye_file = os.path.join(OUTPUT_DIR, "script_nettoye.txt")
+    normalise_file = os.path.join(OUTPUT_DIR, "script_normalise.txt")  # 👈 Nouveau fichier
     
+    # Extraction et nettoyage (comme avant)
+    print("📄 Extraction du titre et du script...")
     extract_title_and_script(input_script, title_file, extrait_file)
+    
+    print("🧹 Nettoyage du script...")
     clean_script(extrait_file, netoye_file)
     
+    # Lire le texte nettoyé
     with open(netoye_file, "r", encoding="utf-8") as f:
         script_text = f.read()
-    chunks = split_text_smart(script_text, 4900)
-    audio_files = generate_audio(chunks)
-    print("✅ Génération audio terminée.")
+    
+    # 🔧 NORMALISATION pour éviter comportements fous du TTS
+    print("🔧 Normalisation du texte (guillemets, apostrophes, etc.)...")
+    script_text_normalise = normaliser_texte_pour_tts(script_text)
+    
+    # Sauvegarder le texte normalisé (pour debug)
+    with open(normalise_file, "w", encoding="utf-8") as f:
+        f.write(script_text_normalise)
+    
+    print(f"📊 Texte normalisé : {len(script_text_normalise)} caractères")
+    
+    # Génération audio avec texte normalisé
+    audio_files = generate_audio_one_sentence_one_chunk(script_text_normalise)
+    
+    print("\n✅ Génération audio terminée.")
     return audio_files
 
 ##############################
@@ -308,51 +666,196 @@ def boost_audio(input_file, output_file, boost_db=10):
     subprocess.run(cmd, check=True)
     print(f"✅ Audio boosté de +{boost_db} dB sauvegardé dans {output_file}")
 
-def prepare_background_video(target_duration, output_video):
+def normalize_video(input_video, output_video):
     """
-    Prépare la vidéo de fond en bouclant le fichier background_video.mp4 
-    pour correspondre à la durée de l'audio principal + 4 secondes (2s avant + 2s après).
+    Normalise une vidéo à 1920x1080, 30fps, H264 - comme dans pexels_video_merger.py
+    Utilise NVENC si disponible, sinon QSV, sinon CPU.
     """
-    background_video_path = os.path.join(WORKING_DIR, "background_video.mp4")
+    print(f"  🔄 Normalisation: {os.path.basename(input_video)}")
     
-    if not os.path.exists(background_video_path):
-        raise FileNotFoundError(f"Le fichier background_video.mp4 n'existe pas dans : {WORKING_DIR}")
-    
-    # Ajouter 4 secondes à la durée cible (2s avant + 2s après)
-    extended_duration = target_duration + 4
-    print(f"🔄 Préparation vidéo de fond pour une durée de {extended_duration:.1f} secondes (audio: {target_duration:.1f}s + 4s de marge)")
-    
-    # Obtenir la durée de la vidéo de fond originale
-    original_duration = get_audio_duration(background_video_path)
-    print(f"📊 Durée vidéo originale : {original_duration:.1f}s")
-    
-    # Calculer le nombre de boucles nécessaires
-    loop_count = int(extended_duration / original_duration) + 1
-    print(f"🔁 Nombre de boucles nécessaires : {loop_count}")
-    
-    # Boucler la vidéo et la couper à la durée exacte
-    cmd = [
+    # Commande NVENC (GPU NVIDIA)
+    cmd_nvenc = [
         "ffmpeg", "-y",
-        "-stream_loop", str(loop_count),
-        "-i", background_video_path,
-        "-t", str(extended_duration),
-        "-c", "copy",
+        "-i", input_video,
+        "-c:v", "h264_nvenc",
+        "-preset", "fast",
+        "-profile:v", "high",
+        "-cq", "23",
+        "-rc:v", "vbr",
+        "-maxrate", "8M",
+        "-bufsize", "16M",
+        "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
+        "-pix_fmt", "yuv420p",
+        "-r", "30",
+        "-an",  # Pas d'audio
+        "-movflags", "+faststart",
         output_video
     ]
     
+    # Fallback Intel QSV
+    cmd_qsv = [
+        "ffmpeg", "-y",
+        "-hwaccel", "qsv",
+        "-i", input_video,
+        "-c:v", "h264_qsv",
+        "-preset", "faster",
+        "-global_quality", "20",
+        "-look_ahead", "1",
+        "-vf", "scale_qsv=1920:1080:force_original_aspect_ratio=decrease",
+        "-pix_fmt", "nv12",
+        "-r", "30",
+        "-an",
+        "-movflags", "+faststart",
+        output_video
+    ]
+    
+    # Fallback CPU
+    cmd_cpu = [
+        "ffmpeg", "-y",
+        "-i", input_video,
+        "-c:v", "libx264",
+        "-preset", "faster",
+        "-crf", "20",
+        "-threads", "0",
+        "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
+        "-pix_fmt", "yuv420p",
+        "-r", "30",
+        "-an",
+        output_video
+    ]
+    
+    # Essayer NVENC en premier
     try:
+        subprocess.run(cmd_nvenc, check=True, capture_output=True)
+        print(f"    ✅ Normalisé avec NVENC")
+        return True
+    except:
+        pass
+    
+    # Essayer QSV
+    try:
+        subprocess.run(cmd_qsv, check=True, capture_output=True)
+        print(f"    ✅ Normalisé avec QSV")
+        return True
+    except:
+        pass
+    
+    # Fallback CPU
+    try:
+        subprocess.run(cmd_cpu, check=True, capture_output=True)
+        print(f"    ✅ Normalisé avec CPU")
+        return True
+    except Exception as e:
+        print(f"    ❌ Erreur de normalisation: {e}")
+        return False
+
+def generate_background_video_from_local(target_duration, output_video):
+    """
+    Génère une vidéo de fond en utilisant des vidéos locales du dossier videos_db.
+    Sélectionne aléatoirement des vidéos, les normalise à 1920x1080@30fps, puis les concatène.
+    La durée correspond à l'audio principal + 4 secondes (2s avant + 2s après).
+    """
+    # Ajouter 4 secondes à la durée cible (2s avant + 2s après)
+    extended_duration = target_duration + 4
+    print(f"🔄 Génération vidéo de fond pour une durée de {extended_duration:.1f} secondes (audio: {target_duration:.1f}s + 4s de marge)...")
+    
+    # Chemin vers le dossier des vidéos locales
+    videos_dir = os.path.join(os.getcwd(), "videos_db")
+    
+    if not os.path.exists(videos_dir):
+        raise FileNotFoundError(f"Le dossier videos_db n'existe pas : {videos_dir}")
+
+    # Lister tous les fichiers vidéo
+    video_extensions = ['.mp4', '.avi', '.mov', '.mkv', '.webm']
+    video_files = []
+    
+    for file in os.listdir(videos_dir):
+        if any(file.lower().endswith(ext) for ext in video_extensions):
+            video_files.append(os.path.join(videos_dir, file))
+    
+    if not video_files:
+        raise FileNotFoundError(f"Aucun fichier vidéo trouvé dans {videos_dir}")
+    
+    print(f"📹 {len(video_files)} vidéos disponibles dans videos_db")
+    
+    # Sélectionner aléatoirement des vidéos jusqu'à atteindre la durée cible
+    selected_videos = []
+    total_duration = 0
+    
+    while total_duration < extended_duration:
+        video = random.choice(video_files)
+        video_duration = get_audio_duration(video)
+        selected_videos.append(video)
+        total_duration += video_duration
+        print(f"  ✓ Sélectionné: {os.path.basename(video)} ({video_duration:.1f}s) - Total: {total_duration:.1f}s")
+    
+    print(f"📊 {len(selected_videos)} vidéo(s) sélectionnée(s) pour un total de {total_duration:.1f}s")
+    
+    # Créer un dossier temporaire pour les vidéos normalisées
+    temp_dir = os.path.join(OUTPUT_DIR, "temp_normalized")
+    if not os.path.exists(temp_dir):
+        os.makedirs(temp_dir)
+    
+    # Normaliser chaque vidéo sélectionnée
+    print(f"🔧 Normalisation des vidéos à 1920x1080@30fps...")
+    normalized_videos = []
+    for i, video in enumerate(selected_videos):
+        normalized_path = os.path.join(temp_dir, f"normalized_{i}.mp4")
+        if normalize_video(video, normalized_path):
+            normalized_videos.append(normalized_path)
+        else:
+            print(f"    ⚠️  Échec normalisation, vidéo ignorée: {os.path.basename(video)}")
+    
+    if not normalized_videos:
+        raise Exception("Aucune vidéo n'a pu être normalisée")
+    
+    # Si une seule vidéo normalisée suffit
+    if len(normalized_videos) == 1:
+        print(f"🎬 Une seule vidéo normalisée, découpage à {extended_duration:.1f}s")
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", normalized_videos[0],
+            "-t", str(extended_duration),
+            "-c:v", "copy",  # Pas de ré-encodage, déjà normalisée
+            "-an",
+            output_video
+        ]
         subprocess.run(cmd, check=True)
-        print(f"✅ Vidéo de fond préparée avec succès: {output_video}")
+    else:
+        # Concaténer les vidéos normalisées
+        print(f"🔗 Concaténation de {len(normalized_videos)} vidéo(s) normalisée(s)...")
         
-        # Vérifier la durée de la vidéo générée
-        actual_duration = get_audio_duration(output_video)
-        print(f"📊 Durée vidéo finale : {actual_duration:.1f}s (cible : {extended_duration:.1f}s)")
+        # Créer un fichier de liste temporaire pour ffmpeg
+        concat_file = os.path.join(temp_dir, "concat_list.txt")
+        with open(concat_file, 'w', encoding='utf-8') as f:
+            for video in normalized_videos:
+                # Utiliser le format file pour ffmpeg concat
+                f.write(f"file '{os.path.abspath(video)}'\n")
         
-        return output_video
-        
-    except subprocess.CalledProcessError as e:
-        print(f"❌ Erreur lors de la préparation de la vidéo de fond: {e}")
-        raise
+        # Concaténer et couper à la durée exacte (copy codec car déjà normalisées)
+        cmd = [
+            "ffmpeg", "-y",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", concat_file,
+            "-t", str(extended_duration),
+            "-c:v", "copy",  # Pas de ré-encodage
+            "-an",
+            output_video
+        ]
+        subprocess.run(cmd, check=True)
+    
+    # Nettoyer le dossier temporaire
+    print(f"🧹 Nettoyage des fichiers temporaires...")
+    shutil.rmtree(temp_dir)
+    
+    print(f"✅ Vidéo de fond générée avec succès: {output_video}")
+    
+    # Vérifier la durée de la vidéo générée
+    actual_duration = get_audio_duration(output_video)
+    print(f"📊 Durée vidéo générée : {actual_duration:.1f}s (cible : {extended_duration:.1f}s)")
+    
+    return output_video
 
 def mix_audio_with_background_delayed(voice_audio, bg_music, output, voice_delay_seconds=2):
     """
@@ -408,8 +911,8 @@ def generate_final_video(video_input, audio_input, subtitle_file, output):
         "-map", "0:v",
         "-map", "1:a",
         "-c:v", "libx264",
-        "-preset", "veryslow",
-        "-crf", "15",
+        "-preset", "medium",
+        "-crf", "18",
         "-c:a", "aac",
         "-b:a", "192k",
         output
@@ -1892,20 +2395,18 @@ def generate_final_video_standard(video_input, audio_input, subtitle_file, outpu
 
 def main():
     """
-    Pipeline complet pour générer une vidéo avec audio, sous-titres et vidéo de fond bouclée.
-    Utilise une mini vidéo qui sera bouclée pour créer la vidéo de fond.
+    Pipeline complet pour générer une vidéo avec audio, sous-titres et vidéos locales.
+    Utilise des vidéos du dossier videos_db au lieu de Pexels/Pixabay.
+    
+    ✅ VERSION MISE À JOUR : Utilise la nouvelle méthode hybride de détection des versets
     """
-    print("🚀 Démarrage du pipeline Video_Generator_Simple")
+    print("🚀 Démarrage du pipeline Video_Gen_Full")
     print("🧠 Mode INTELLIGENT activé - Détection automatique des transitions de prière")
     print(f"📁 Dossier de travail: {WORKING_DIR}")
     print(f"📁 Dossier de sortie: {OUTPUT_DIR}")
     
     # PARTIE 1 – Génération audio
     input_script = os.path.join(WORKING_DIR, "script_video.txt")
-    if not os.path.exists(input_script):
-        print(f"❌ Le fichier script_video.txt n'existe pas dans : {WORKING_DIR}")
-        return
-    
     audio_parts = process_audio_generation(input_script)
     if not audio_parts:
         print("❌ Aucun fichier audio généré.")
@@ -1924,7 +2425,7 @@ def main():
     generate_srt_with_srt_generator(boosted_audio, final_srt)
     
     # PARTIE 2.5 – TRAITEMENT INTELLIGENT : Détection des transitions de prière
-    print("\n🧠 TRAITEMENT INTELLIGENT - Analyse des transitions de prière...")
+    print("\\n🧠 TRAITEMENT INTELLIGENT - Analyse des transitions de prière...")
     transition_points = detect_prayer_transitions(final_srt)
     
     if transition_points:
@@ -1945,24 +2446,28 @@ def main():
     else:
         print("ℹ️  Aucune transition détectée, pipeline standard utilisé")
     
-    # PARTIE 2.6 – AMÉLIORATION DU SRT (correction guillemets bibliques)
-    print("\n📖 ÉTAPE 2.6/7 : Amélioration du SRT (correction guillemets)...")
+    # ============================================================
+    # PARTIE 2.6 – DÉTECTION DES VERSETS BIBLIQUES (MÉTHODE HYBRIDE)
+    # ============================================================
+    print("\\n📖 ÉTAPE 2.6/7 : Détection des versets bibliques...")
     source_text_path = os.path.join(OUTPUT_DIR, "script_nettoye.txt")
     
     # ✅ NOUVELLE FONCTION HYBRIDE (remplace les 3 anciennes fonctions)
     verses_with_timestamps = extract_verses_with_timestamps(source_text_path, final_srt)
     
-    # PARTIE 3 – Génération vidéo avec vidéo bouclée
+    # PARTIE 3 – Génération vidéo avec vidéos locales
     audio_duration = get_audio_duration(boosted_audio)
-    print(f"\n📊 Durée de l'audio final (avec pauses éventuelles): {audio_duration:.1f} secondes")
+    print(f"\\n📊 Durée de l'audio final (avec pauses éventuelles): {audio_duration:.1f} secondes")
     background_video = os.path.join(OUTPUT_DIR, "background_video.mp4")
-    prepare_background_video(audio_duration, background_video)
+    generate_background_video_from_local(audio_duration, background_video)
     
     background_music = select_random_background_music()
     mixed_audio = os.path.join(OUTPUT_DIR, "mixed_audio.m4a")
     mix_audio_with_background_delayed(boosted_audio, background_music, mixed_audio, voice_delay_seconds=2)
     
-    # PARTIE 4 – Génération vidéo finale (avec ou sans overlays)
+    # ============================================================
+    # PARTIE 4 – GÉNÉRATION VIDÉO FINALE (AVEC OU SANS OVERLAYS)
+    # ============================================================
     
     # Créer SRT décalé de 2 secondes
     shifted_srt = os.path.join(OUTPUT_DIR, "subtitles_shifted.srt")
@@ -2004,31 +2509,32 @@ def main():
         print(f"📁 Dossier sortie    : {OUTPUT_DIR}")
         print("="*80 + "\\n")
     
-    
-    # ✅ MODE STANDARD (sans overlays)
-    print("🎬 Génération en MODE STANDARD (sans overlays)...\\n")
-    
-    final_video_standard = os.path.join(OUTPUT_DIR, "final_video_standard.mp4")
-    
-    success = generate_final_video_standard(
-        background_video,
-        mixed_audio,
-        shifted_srt,
-        final_video_standard
-    )
-    
-    if success:
-        print("\\n" + "="*80)
-        print("🎉 PIPELINE COMPLET TERMINÉ - MODE STANDARD")
-        print("="*80)
-        print(f"🎬 Vidéo finale      : {final_video_standard}")
-        print(f"📖 Mode             : Standard (sans overlays bibliques)")
-        print(f"⏸️  Pauses prière     : {len(transition_points) if transition_points else 0}")
-        print(f"📁 Dossier sortie    : {OUTPUT_DIR}")
-        print("="*80 + "\\n")
     else:
-        print("\\n❌ Échec de la génération de la vidéo finale")
+        # ✅ MODE STANDARD (sans overlays)
+        print("\\n⚠️  Aucun verset biblique détecté")
+        print("🎬 Génération en MODE STANDARD (sans overlays)...\\n")
+        
+        final_video = os.path.join(OUTPUT_DIR, "final_video_standard.mp4")
+        
+        success = generate_final_video_standard(
+            background_video,
+            mixed_audio,
+            shifted_srt,
+            final_video
+        )
+        
+        if success:
+            print("\\n" + "="*80)
+            print("🎉 PIPELINE COMPLET TERMINÉ - MODE STANDARD")
+            print("="*80)
+            print(f"🎬 Vidéo finale      : {final_video}")
+            print(f"📖 Mode             : Standard (sans overlays bibliques)")
+            print(f"⏸️  Pauses prière     : {len(transition_points) if transition_points else 0}")
+            print(f"📁 Dossier sortie    : {OUTPUT_DIR}")
+            print("="*80 + "\\n")
+        else:
+            print("\\n❌ Échec de la génération de la vidéo finale")
+
 
 if __name__ == "__main__":
     main()
-
