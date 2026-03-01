@@ -126,6 +126,7 @@ dmypy.json
 # Generated project folders
 Project_*/
 output/
+outputs/
 output.txt
 
 # Temporary video processing files
