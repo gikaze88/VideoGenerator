@@ -4,7 +4,7 @@ import {
   ArrowLeft, Download, Loader2, CheckCircle, XCircle, Clock, Terminal
 } from 'lucide-react'
 import {
-  getJob, getJobLogs, getDownloadUrl, formatDate, formatDuration,
+  getJob, getJobLogs, getJobFiles, getDownloadUrl, formatDate, formatDuration,
   STATUS_LABELS, STATUS_COLORS, type Job, type JobStatus,
 } from '../api'
 
@@ -40,6 +40,7 @@ export default function JobDetail() {
   const [logLines, setLogLines] = useState<string[]>([])
   const [linesLoaded, setLinesLoaded] = useState(0)
   const [notFound, setNotFound] = useState(false)
+  const [outputFiles, setOutputFiles] = useState<string[]>([])
   const logEndRef = useRef<HTMLDivElement>(null)
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -80,6 +81,11 @@ export default function JobDetail() {
 
       const newLine = await fetchLogs(currentLine)
       currentLine = newLine
+
+      if (j.status === 'completed' && !cancelled) {
+        const files = await getJobFiles(j.id)
+        if (!cancelled) setOutputFiles(files)
+      }
 
       if (!cancelled && (j.status === 'pending' || j.status === 'running')) {
         pollRef.current = setTimeout(poll, 3000)
@@ -198,22 +204,48 @@ export default function JobDetail() {
 
       {/* Téléchargement */}
       {job.status === 'completed' && (
-        <div className="bg-green-900/20 border border-green-800 rounded-xl p-4 flex items-center justify-between">
-          <div>
-            <p className="text-green-300 font-medium">Vidéo prête !</p>
-            <p className="text-green-500 text-sm mt-0.5">
-              Durée totale : {formatDuration(job.created_at, job.completed_at)}
-            </p>
+        <div className="bg-green-900/20 border border-green-800 rounded-xl p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-green-300 font-medium">Vidéo prête !</p>
+              <p className="text-green-500 text-sm mt-0.5">
+                Durée totale : {formatDuration(job.created_at, job.completed_at)}
+              </p>
+            </div>
           </div>
-          <a
-            href={getDownloadUrl(job.id)}
-            download
-            className="flex items-center gap-2 bg-green-600 hover:bg-green-500 text-white
-                       font-semibold px-5 py-2.5 rounded-xl transition-colors"
-          >
-            <Download size={16} />
-            Télécharger
-          </a>
+          {outputFiles.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {outputFiles.map((filename) => {
+                const isOverlay = filename.includes('overlay')
+                const label = isOverlay ? 'Avec versets bibliques' : 'Version standard'
+                return (
+                  <a
+                    key={filename}
+                    href={getDownloadUrl(job.id, filename)}
+                    download={filename}
+                    className={`flex items-center gap-2 font-semibold px-4 py-2.5 rounded-xl transition-colors text-sm ${
+                      isOverlay
+                        ? 'bg-amber-600 hover:bg-amber-500 text-white'
+                        : 'bg-green-600 hover:bg-green-500 text-white'
+                    }`}
+                  >
+                    <Download size={15} />
+                    {label}
+                  </a>
+                )
+              })}
+            </div>
+          ) : (
+            <a
+              href={getDownloadUrl(job.id)}
+              download
+              className="flex items-center gap-2 bg-green-600 hover:bg-green-500 text-white
+                         font-semibold px-5 py-2.5 rounded-xl transition-colors w-fit"
+            >
+              <Download size={16} />
+              Télécharger
+            </a>
+          )}
         </div>
       )}
 

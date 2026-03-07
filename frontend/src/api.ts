@@ -82,8 +82,16 @@ export async function deleteJob(jobId: string): Promise<void> {
   if (!res.ok) throw new Error('Erreur lors de la suppression')
 }
 
-export function getDownloadUrl(jobId: string): string {
-  return `${BASE}/jobs/${jobId}/download`
+export async function getJobFiles(jobId: string): Promise<string[]> {
+  const res = await fetch(`${BASE}/jobs/${jobId}/files`)
+  if (!res.ok) return []
+  const data = await res.json()
+  return data.files as string[]
+}
+
+export function getDownloadUrl(jobId: string, filename?: string): string {
+  const base = `${BASE}/jobs/${jobId}/download`
+  return filename ? `${base}?filename=${encodeURIComponent(filename)}` : base
 }
 
 // ── Assets ───────────────────────────────────────────────────────────────────

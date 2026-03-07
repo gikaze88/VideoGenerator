@@ -101,9 +101,26 @@ async def stream_job_logs(job_id: str, from_line: int = 0):
     }
 
 
+@router.get("/{job_id}/files")
+async def list_job_files(job_id: str):
+    """Liste les vidéos MP4 disponibles pour un job terminé."""
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job non trouvé")
+    if job["status"] != "completed":
+        raise HTTPException(status_code=400, detail="La vidéo n'est pas encore prête")
+
+    job_dir = Path(job["output_video_path"]).parent
+    files = sorted(
+        [f.name for f in job_dir.glob("*.mp4") if f.is_file()],
+        key=lambda n: (0 if "overlay" in n else 1, n),
+    )
+    return {"files": files}
+
+
 @router.get("/{job_id}/download")
-async def download_video(job_id: str):
-    """Télécharge la vidéo finale d'un job terminé."""
+async def download_video(job_id: str, filename: str | None = None):
+    """Télécharge une vidéo d'un job terminé. Sans filename, retourne la vidéo principale."""
     job = get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job non trouvé")
@@ -111,9 +128,15 @@ async def download_video(job_id: str):
     if job["status"] != "completed":
         raise HTTPException(status_code=400, detail="La vidéo n'est pas encore prête")
 
-    video_path = Path(job["output_video_path"])
-    if not video_path.exists():
-        raise HTTPException(status_code=404, detail="Fichier vidéo introuvable")
+    if filename:
+        job_dir = Path(job["output_video_path"]).parent
+        video_path = job_dir / filename
+        if not video_path.exists() or video_path.suffix != ".mp4":
+            raise HTTPException(status_code=404, detail="Fichier vidéo introuvable")
+    else:
+        video_path = Path(job["output_video_path"])
+        if not video_path.exists():
+            raise HTTPException(status_code=404, detail="Fichier vidéo introuvable")
 
     return FileResponse(
         path=str(video_path),
