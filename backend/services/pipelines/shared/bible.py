@@ -246,40 +246,73 @@ def _parse_reference_match(match: re.Match, ptype: str) -> str | None:
         verse_n = convert_french_number_to_digit(g[3])
         return f"{book} {chapter}:{verse_n}"
     elif ptype == "standalone":
-        # Format: "Jean 3:16" or "1 Corinthiens 15:1"
         book_raw = g[0].strip()
         book = BIBLE_BOOKS.get(book_raw.lower(), book_raw.upper())
         chapter = g[1]
         verse_n = g[2] if len(g) > 2 and g[2] else "1"
         return f"{book} {chapter}:{verse_n}"
+    elif ptype == "compound_cent":
+        # "psaume cent sept vingt" → book=psaume, g1=cent (literal), g2=sept, g3=vingt
+        # chapter = cent + g2 (ex: cent-sept = 107), verse = g3
+        book = BIBLE_BOOKS.get(g[0].lower(), g[0].upper())
+        chapter = convert_french_number_to_digit(f"cent-{g[1]}")
+        verse_n = convert_french_number_to_digit(g[2])
+        return f"{book} {chapter}:{verse_n}"
+    elif ptype == "compound_cent_range":
+        # "psaume cent trois trois à cinq" → PSAUMES 103:3-5
+        book = BIBLE_BOOKS.get(g[0].lower(), g[0].upper())
+        chapter = convert_french_number_to_digit(f"cent-{g[1]}")
+        v_start = convert_french_number_to_digit(g[2])
+        v_end = convert_french_number_to_digit(g[3])
+        return f"{book} {chapter}:{v_start}-{v_end}"
     return None
 
 
+# Classes de caractères pour les noms de livres et nombres en français
+# [A-Za-zÀ-ÿ\-] couvre toutes les lettres latines accentuées (é, è, ê, î, ï, ô, û, ç…)
+_BK = r'[A-Za-zÀ-ÿ\-]+'   # nom de livre
+_NW = r'[a-zà-ÿ\-]+'      # mot numérique (chapitre/verset)
+
 REF_PATTERNS = [
+    # ── Avec mots-clés chapitre/verset ──────────────────────────────────────
     # "Dans l'Évangile selon Matthieu, chapitre dix, verset trente"
-    (r"[Dd]ans\s+l[''\u2019][ÉéEe]vangile\s+(?:selon|de)\s+([A-Za-zéèêàù]+),?\s+chapitres?\s+([a-zéèê\-\d]+),?\s+versets?\s+([a-zéèê\-\d]+)", 'std'),
+    (rf"[Dd]ans\s+l[''\u2019][ÉéEe]vangile\s+(?:selon|de)\s+({_BK}),?\s+chapitres?\s+({_NW}),?\s+versets?\s+({_NW})", 'std'),
     # "Selon l'Évangile de Matthieu, chapitre X, verset Y"
-    (r"[Ss]elon\s+l[''\u2019][ÉéEe]vangile\s+(?:de|selon)?\s*([A-Za-zéèêàù]+),?\s+chapitres?\s+([a-zéèê\-\d]+),?\s+versets?\s+([a-zéèê\-\d]+)", 'std'),
-    # "Dans l'Épître de Paul aux Éphésiens, chapitre X, verset Y" → generic "Épître ... BookName"
-    (r"[Dd]ans\s+l[''\u2019][ÉéEe]p[iî]tre\s+(?:\w+\s+){0,4}([A-Za-zéèêàù]+),?\s+chapitres?\s+([a-zéèê\-\d]+),?\s+versets?\s+([a-zéèê\-\d]+)", 'std'),
-    # Standard: "Dans Matthieu chapitre dix verset trente"
-    (r'[Dd]ans\s+(?:le\s+)?([A-Za-zéèêàù\-]+)\s+chapitres?\s+([a-zéèê\-\d]+),?\s+versets?\s+([a-zéèê\-\d]+)', 'std'),
-    (r'[Dd]ans\s+(?:le\s+)?([A-Za-zéèêàù\-]+)\s+([a-zéèê\-]+)\s+versets?\s+([a-zéèê\-]+)', 'std'),
-    (r'[Ee]n\s+([A-Za-zéèêàù\-]+)\s+([a-zéèê\-]+)\s+versets?\s+([a-zéèê\-]+)', 'std'),
-    (r'[Ee]t\s+en\s+([A-Za-zéèêàù\-]+)\s+([a-zéèê\-]+)\s+versets?\s+([a-zéèê\-]+)', 'std'),
-    (r'[Ss]elon\s+([A-Za-zéèêàù\-]+)\s+([a-zéèê\-]+)\s+([a-zéèê\-]+)', 'std'),
-    (r"[Dd]'après\s+([A-Za-zéèêàù\-]+)\s+([a-zéèê\-]+)\s+([a-zéèê\-]+)", 'std'),
-    (r'[Ee]t\s+dans\s+([A-Za-zéèêàù\-]+)\s+([a-zéèê\-]+)\s+([a-zéèê\-]+)', 'std'),
-    (r'[Dd]ans\s+([A-Za-zéèêàù\-]+)\s+([a-zéèê\-]+)\s+([a-zéèê\-]+)\s+à\s+([a-zéèê\-]+)', 'range'),
-    (r'[Dd]ans\s+([A-Za-zéèêàù\-]+)\s+([a-zéèê\-]+)\s*,\s*(?:versets?\s+)?([a-zéèê\-]+)', 'std'),
-    (r'[Dd]ans\s+(?:le\s+)?([A-Za-zéèêàù]+)\s+(\d+)(?:,?\s*versets?\s*(\d+))?', 'digits'),
-    (r'[Ee]n\s+([A-Za-zéèêàù]+)\s+(\d+):(\d+)(?:-(\d+))?', 'modern'),
-    (r'[Ss]elon\s+([A-Za-zéèêàù]+)\s+(\d+):(\d+)(?:-(\d+))?', 'modern'),
-    (r'[Dd]ans\s+(?:le\s+)?(premier|première|deuxième|second|seconde|troisième)\s+([A-Za-zéèêàù\-]+)\s+([a-zéèê\-]+)\s+(?:versets?\s+)?([a-zéèê\-]+)', 'ordinal'),
-    (r'[Ee]n\s+(premier|première|deuxième|second|seconde|troisième)\s+([A-Za-zéèêàù\-]+)\s+([a-zéèê\-]+)\s+(?:versets?\s+)?([a-zéèê\-]+)', 'ordinal'),
-    # Standalone: "Jean 3:16", "1 Corinthiens 15:1-3"
-    (r'\b([A-Za-zéèêàù][A-Za-zéèêàù\-]+)\s+(\d+):(\d+)(?:-\d+)?', 'standalone'),
-    (r'\b(\d\s+[A-Za-zéèêàù][A-Za-zéèêàù\-]+)\s+(\d+):(\d+)(?:-\d+)?', 'standalone'),
+    (rf"[Ss]elon\s+l[''\u2019][ÉéEe]vangile\s+(?:de|selon)?\s*({_BK}),?\s+chapitres?\s+({_NW}),?\s+versets?\s+({_NW})", 'std'),
+    # "Dans l'Épître … BookName, chapitre X, verset Y"
+    (rf"[Dd]ans\s+l[''\u2019][ÉéEe]p[iî]tre\s+(?:\w+\s+){{0,4}}({_BK}),?\s+chapitres?\s+({_NW}),?\s+versets?\s+({_NW})", 'std'),
+    # "Dans Matthieu chapitre dix verset trente"
+    (rf'[Dd]ans\s+(?:le\s+)?({_BK})\s+chapitres?\s+({_NW}),?\s+versets?\s+({_NW})', 'std'),
+    (rf'[Dd]ans\s+(?:le\s+)?({_BK})\s+({_NW})\s+versets?\s+({_NW})', 'std'),
+    (rf'[Ee]n\s+({_BK})\s+({_NW})\s+versets?\s+({_NW})', 'std'),
+    (rf'[Ee]t\s+en\s+({_BK})\s+({_NW})\s+versets?\s+({_NW})', 'std'),
+    (rf'[Ss]elon\s+({_BK})\s+({_NW})\s+({_NW})', 'std'),
+    (rf"[Dd]'après\s+({_BK})\s+({_NW})\s+({_NW})", 'std'),
+    # ── Ordinal (deuxième Timothée…) ─────────────────────────────────────────
+    (rf'[Dd]ans\s+(?:le\s+)?(premier|première|deuxième|second|seconde|troisième)\s+({_BK})\s+({_NW})\s+(?:versets?\s+)?({_NW})', 'ordinal'),
+    (rf'[Ee]n\s+(premier|première|deuxième|second|seconde|troisième)\s+({_BK})\s+({_NW})\s+(?:versets?\s+)?({_NW})', 'ordinal'),
+    (rf'[Dd]it\s+dans\s+(premier|première|deuxième|second|seconde|troisième)\s+({_BK})\s+({_NW})\s+({_NW})', 'ordinal'),
+    (rf'[Dd]ans\s+(premier|première|deuxième|second|seconde|troisième)\s+({_BK})\s+({_NW})\s+({_NW})', 'ordinal'),
+    # ── Chapitre composé : "cent N VERSE" (ex: psaume cent sept vingt = 107:20) ──
+    (rf'[Dd]écl[aà]re\s+dans\s+({_BK})\s+cent\s+([a-zà-ÿ]+)\s+([a-zà-ÿ\-]+)', 'compound_cent'),
+    (rf'[Dd]it\s+dans\s+({_BK})\s+cent\s+([a-zà-ÿ]+)\s+([a-zà-ÿ\-]+)', 'compound_cent'),
+    (rf'[Dd]ans\s+(?:le\s+)?({_BK})\s+cent\s+([a-zà-ÿ]+)\s+([a-zà-ÿ\-]+)\s+à\s+([a-zà-ÿ\-]+)', 'compound_cent_range'),
+    (rf'[Dd]ans\s+(?:le\s+)?({_BK})\s+cent\s+([a-zà-ÿ]+)\s+([a-zà-ÿ\-]+)', 'compound_cent'),
+    (rf'[Ee]n\s+({_BK})\s+cent\s+([a-zà-ÿ]+)\s+([a-zà-ÿ\-]+)', 'compound_cent'),
+    # ── "Et dans / dans BOOK WORD WORD" (3 mots simples sans mots-clés) ─────
+    (rf'[Ee]t\s+dans\s+({_BK})\s+({_NW})\s+({_NW})', 'std'),
+    (rf'[Dd]ans\s+({_BK})\s+({_NW})\s+({_NW})\s+à\s+({_NW})', 'range'),
+    (rf'[Dd]ans\s+({_BK})\s+({_NW})\s*,\s*(?:versets?\s+)?({_NW})', 'std'),
+    (rf'[Dd]ans\s+(?:le\s+)?({_BK})\s+(\d+)(?:,?\s*versets?\s*(\d+))?', 'digits'),
+    (rf'[Ee]n\s+({_BK})\s+(\d+):(\d+)(?:-(\d+))?', 'modern'),
+    (rf'[Ss]elon\s+({_BK})\s+(\d+):(\d+)(?:-(\d+))?', 'modern'),
+    # "tu as dit dans Jean huit trente-deux"
+    (rf'[Dd]it\s+dans\s+({_BK})\s+({_NW})\s+({_NW})', 'std'),
+    # Catch-all 3 mots (en dernier pour éviter les faux positifs)
+    (rf'[Dd]ans\s+({_BK})\s+({_NW})\s+({_NW})', 'std'),
+    # ── Standalone numérique : "Jean 3:16", "1 Corinthiens 15:1-3" ──────────
+    (r'\b([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\-]+)\s+(\d+):(\d+)(?:-\d+)?', 'standalone'),
+    (r'\b(\d\s+[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\-]+)\s+(\d+):(\d+)(?:-\d+)?', 'standalone'),
 ]
 
 
@@ -308,21 +341,23 @@ def extract_reference_from_source(verse_text: str, source_text: str, log_file=No
     search_after = source_text[verse_end_pos:after_end]
 
     best_reference = None
-    best_score = float("inf")  # lower = closer to verse
+    best_score = float("inf")
 
-    for zone, zone_text, is_before in [
-        ("before", search_before, True),
-        ("after", search_after, False),
-    ]:
+    # Priorité 1 : chercher dans les 500 chars AVANT le verset
+    for pattern, ptype in REF_PATTERNS:
+        for match in re.finditer(pattern, search_before, re.IGNORECASE):
+            distance = len(search_before) - match.end()
+            if distance < best_score:
+                ref = _parse_reference_match(match, ptype)
+                if ref:
+                    best_score = distance
+                    best_reference = ref
+
+    # Priorité 2 : si rien trouvé avant, chercher dans les 300 chars APRÈS
+    if not best_reference:
         for pattern, ptype in REF_PATTERNS:
-            for match in re.finditer(pattern, zone_text, re.IGNORECASE):
-                if is_before:
-                    # Distance = chars between end of match and start of verse
-                    distance = len(zone_text) - match.end()
-                else:
-                    # Distance = chars between end of verse and start of match
-                    distance = match.start()
-
+            for match in re.finditer(pattern, search_after, re.IGNORECASE):
+                distance = match.start()
                 if distance < best_score:
                     ref = _parse_reference_match(match, ptype)
                     if ref:
@@ -346,7 +381,8 @@ def extract_verses_with_timestamps(
     """
     log("📖 Détection des versets bibliques... [bible.py v2]", log_file)
 
-    verse_pattern = r'[«"]([^»"]{30,}?)[»"]'
+    # Seulement «guillemets français» — évite les faux positifs des guillemets droits dans le texte
+    verse_pattern = r'«([^»]{30,}?)»'
     detected = [v.strip() for v in re.findall(verse_pattern, source_text) if len(v.strip()) >= 30]
     log(f"   {len(detected)} verset(s) détecté(s) dans le texte source", log_file)
 
