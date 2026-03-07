@@ -21,11 +21,6 @@ from backend.services.pipelines.shared.srt import (
     shift_srt_timing,
     regroup_srt_by_word_count,
 )
-from backend.services.pipelines.shared.bible import (
-    extract_verses_with_timestamps,
-    save_verses_metadata,
-    shift_verses_timestamps,
-)
 from backend.services.pipelines.shared.video import (
     loop_video_to_duration,
     generate_final_video_standard,
@@ -53,6 +48,10 @@ def run_pipeline_simple(
     """
     log("🚀 Pipeline SIMPLE démarré", log_file)
 
+    portrait_mode = is_portrait_video(background_video_source)
+    if portrait_mode:
+        log("  📱 Vidéo de fond en mode PORTRAIT (9:16)", log_file)
+
     # ── Étape 1 : Extraction et nettoyage du script ───────────────────────────
     log("\n📝 Étape 1/7 : Extraction du script...", log_file)
     title, script_body = extract_title_and_script(script_text)
@@ -78,7 +77,7 @@ def run_pipeline_simple(
     generate_srt(boosted_audio, raw_srt, log_file)
 
     # Réduction à 3 mots/sous-titre si la vidéo de fond est en portrait (9:16)
-    if is_portrait_video(background_video_source):
+    if portrait_mode:
         log("  📱 Format portrait détecté → regroupement SRT à 3 mots/sous-titre", log_file)
         portrait_srt = work_dir / "final_subtitles_portrait.srt"
         regroup_srt_by_word_count(raw_srt, portrait_srt, max_words=3, log_file=log_file)
@@ -108,6 +107,7 @@ def run_pipeline_simple(
     # ── Étape 5 : Versets bibliques ──────────────────────────────────────────
     log("\n📖 Étape 5/7 : Détection des versets bibliques...", log_file)
     source_text = clean_text_path.read_text(encoding="utf-8")
+    from backend.services.pipelines.shared.bible import extract_verses_with_timestamps
     verses = extract_verses_with_timestamps(source_text, final_srt, log_file)
 
     # ── Étape 6 : Préparation vidéo de fond (boucle) ─────────────────────────
@@ -131,13 +131,17 @@ def run_pipeline_simple(
     main_output: Path | None = None
 
     if verses:
+        from backend.services.pipelines.shared.bible import (
+            shift_verses_timestamps, save_verses_metadata,
+        )
         verses_shifted = shift_verses_timestamps(verses, VOICE_DELAY_SECONDS * 1000)
         metadata_path = work_dir / "bible_verses_metadata.json"
         save_verses_metadata(verses_shifted, metadata_path)
 
         overlay_video = output_dir / "final_video_with_overlays.mp4"
         generate_final_video_with_overlays(
-            background_video, mixed_audio, metadata_path, shifted_srt, overlay_video, log_file
+            background_video, mixed_audio, metadata_path, shifted_srt, overlay_video, log_file,
+            portrait_mode=portrait_mode,
         )
         main_output = overlay_video
 

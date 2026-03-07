@@ -283,16 +283,19 @@ REF_PATTERNS = [
 ]
 
 
-def extract_reference_from_source(verse_text: str, source_text: str) -> str:
+def extract_reference_from_source(verse_text: str, source_text: str, log_file=None) -> str:
     """
     Extrait la référence biblique depuis le texte source.
     Cherche dans les 500 chars AVANT et 300 chars APRÈS le verset.
     """
     verse_start = verse_text[:50] if len(verse_text) > 50 else verse_text
     verse_pos = source_text.find(verse_start)
+    log(f"      [REF] verse_start={repr(verse_start[:40])} pos={verse_pos}", log_file)
     if verse_pos == -1:
         verse_pos = source_text.find(verse_text[:30])
+        log(f"      [REF] fallback 30-char pos={verse_pos}", log_file)
     if verse_pos == -1:
+        log(f"      [REF] verset introuvable dans source_text", log_file)
         return "VERSET BIBLIQUE"
 
     verse_end_pos = verse_pos + len(verse_text)
@@ -326,6 +329,7 @@ def extract_reference_from_source(verse_text: str, source_text: str) -> str:
                         best_score = distance
                         best_reference = ref
 
+    log(f"      [REF] best_reference={best_reference}", log_file)
     return best_reference or "VERSET BIBLIQUE"
 
 
@@ -340,7 +344,7 @@ def extract_verses_with_timestamps(
     2. Les cherche dans le SRT avec fenêtre glissante
     Retourne une liste de métadonnées avec timestamps.
     """
-    log("📖 Détection des versets bibliques...", log_file)
+    log("📖 Détection des versets bibliques... [bible.py v2]", log_file)
 
     verse_pattern = r'[«"]([^»"]{30,}?)[»"]'
     detected = [v.strip() for v in re.findall(verse_pattern, source_text) if len(v.strip()) >= 30]
@@ -355,7 +359,7 @@ def extract_verses_with_timestamps(
         match = find_verse_in_srt(verse_norm, subtitles, start_after_index=last_end_index)
         if match:
             last_end_index = match["end_index"]
-            reference = extract_reference_from_source(verse_text, source_text)
+            reference = extract_reference_from_source(verse_text, source_text, log_file)
             results.append({
                 "reference": reference,
                 "text": verse_text,
