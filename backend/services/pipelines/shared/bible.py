@@ -256,7 +256,14 @@ def _parse_reference_match(match: re.Match, ptype: str) -> str | None:
 
 
 REF_PATTERNS = [
-    (r'[Dd]ans\s+(?:le\s+)?([A-Za-zéèêàù\-]+)\s+chapitres?\s+([a-zéèê\-]+)\s+versets?\s+([a-zéèê\-]+)', 'std'),
+    # "Dans l'Évangile selon Matthieu, chapitre dix, verset trente"
+    (r"[Dd]ans\s+l[''\u2019][ÉéEe]vangile\s+(?:selon|de)\s+([A-Za-zéèêàù]+),?\s+chapitres?\s+([a-zéèê\-\d]+),?\s+versets?\s+([a-zéèê\-\d]+)", 'std'),
+    # "Selon l'Évangile de Matthieu, chapitre X, verset Y"
+    (r"[Ss]elon\s+l[''\u2019][ÉéEe]vangile\s+(?:de|selon)?\s*([A-Za-zéèêàù]+),?\s+chapitres?\s+([a-zéèê\-\d]+),?\s+versets?\s+([a-zéèê\-\d]+)", 'std'),
+    # "Dans l'Épître de Paul aux Éphésiens, chapitre X, verset Y" → generic "Épître ... BookName"
+    (r"[Dd]ans\s+l[''\u2019][ÉéEe]p[iî]tre\s+(?:\w+\s+){0,4}([A-Za-zéèêàù]+),?\s+chapitres?\s+([a-zéèê\-\d]+),?\s+versets?\s+([a-zéèê\-\d]+)", 'std'),
+    # Standard: "Dans Matthieu chapitre dix verset trente"
+    (r'[Dd]ans\s+(?:le\s+)?([A-Za-zéèêàù\-]+)\s+chapitres?\s+([a-zéèê\-\d]+),?\s+versets?\s+([a-zéèê\-\d]+)', 'std'),
     (r'[Dd]ans\s+(?:le\s+)?([A-Za-zéèêàù\-]+)\s+([a-zéèê\-]+)\s+versets?\s+([a-zéèê\-]+)', 'std'),
     (r'[Ee]n\s+([A-Za-zéèêàù\-]+)\s+([a-zéèê\-]+)\s+versets?\s+([a-zéèê\-]+)', 'std'),
     (r'[Ee]t\s+en\s+([A-Za-zéèêàù\-]+)\s+([a-zéèê\-]+)\s+versets?\s+([a-zéèê\-]+)', 'std'),
@@ -270,7 +277,7 @@ REF_PATTERNS = [
     (r'[Ss]elon\s+([A-Za-zéèêàù]+)\s+(\d+):(\d+)(?:-(\d+))?', 'modern'),
     (r'[Dd]ans\s+(?:le\s+)?(premier|première|deuxième|second|seconde|troisième)\s+([A-Za-zéèêàù\-]+)\s+([a-zéèê\-]+)\s+(?:versets?\s+)?([a-zéèê\-]+)', 'ordinal'),
     (r'[Ee]n\s+(premier|première|deuxième|second|seconde|troisième)\s+([A-Za-zéèêàù\-]+)\s+([a-zéèê\-]+)\s+(?:versets?\s+)?([a-zéèê\-]+)', 'ordinal'),
-    # Standalone format: "Jean 3:16", "1 Corinthiens 15:1-3"
+    # Standalone: "Jean 3:16", "1 Corinthiens 15:1-3"
     (r'\b([A-Za-zéèêàù][A-Za-zéèêàù\-]+)\s+(\d+):(\d+)(?:-\d+)?', 'standalone'),
     (r'\b(\d\s+[A-Za-zéèêàù][A-Za-zéèêàù\-]+)\s+(\d+):(\d+)(?:-\d+)?', 'standalone'),
 ]
