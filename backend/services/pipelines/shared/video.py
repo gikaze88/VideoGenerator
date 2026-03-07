@@ -135,7 +135,9 @@ def loop_video_to_duration(
         "-stream_loop", str(loop_count),
         "-i", str(source_video),
         "-t", str(extended),
-        "-c", "copy",
+        "-vf", "setpts=PTS-STARTPTS",   # reset timestamps to avoid PTS discontinuities
+        "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+        "-an",
         str(output_video),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -314,12 +316,6 @@ def generate_final_video_with_overlays(
                 f"fontsize=38:fontcolor=white:x=(w-text_w)/2:y={y_positions[j]}:"
                 f"shadowcolor=black@0.8:shadowx=2:shadowy=2:enable={enable}"
             )
-
-        filters.append(
-            f"drawtext=textfile='{brand_escaped}':"
-            f"fontsize=24:fontcolor=white@0.9:x=20:y=20:"
-            f"shadowcolor=black@0.8:shadowx=2:shadowy=2:enable={enable}"
-        )
 
     vf = ",".join(filters)
     cmd_final = [
