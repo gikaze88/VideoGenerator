@@ -115,7 +115,7 @@ def run_pipeline_simple(
     audio_duration = get_media_duration(boosted_audio)
     log(f"  Durée audio : {audio_duration:.1f}s", log_file)
 
-    background_video = work_dir / "background_video.mp4"
+    background_video = work_dir / "background_video_looped.mp4"
     loop_video_to_duration(background_video_source, audio_duration, background_video, log_file)
 
     bg_music = select_random_background_music()

@@ -157,10 +157,11 @@ def generate_final_video_standard(
     """
     log("🎥 Encodage final (mode standard)...", log_file)
     srt_escaped = escape_ffmpeg_path_windows(srt_path)
+    font_regular_escaped = FONT_REGULAR.replace(':', '\\:')
 
     vf_filter = (
         f"drawtext=text='La Sagesse Du Christ':"
-        f"fontfile='{FONT_REGULAR.replace(':', '\\:')}':fontsize=24:"
+        f"fontfile='{font_regular_escaped}':fontsize=24:"
         f"fontcolor=white@0.9:x=20:y=20:"
         f"shadowcolor=black@0.8:shadowx=2:shadowy=2,"
         f"subtitles=filename='{srt_escaped}':"
