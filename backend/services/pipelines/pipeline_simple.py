@@ -19,6 +19,7 @@ from backend.services.pipelines.shared.srt import (
     detect_prayer_transitions,
     adjust_srt_with_pauses,
     shift_srt_timing,
+    regroup_srt_by_word_count,
 )
 from backend.services.pipelines.shared.bible import (
     extract_verses_with_timestamps,
@@ -34,6 +35,7 @@ from backend.services.pipelines.shared.utils import (
     extract_title_and_script,
     clean_script,
     get_media_duration,
+    is_portrait_video,
     log,
 )
 
@@ -74,6 +76,15 @@ def run_pipeline_simple(
     log("\n📝 Étape 3/7 : Génération des sous-titres (Whisper)...", log_file)
     raw_srt = work_dir / "final_subtitles.srt"
     generate_srt(boosted_audio, raw_srt, log_file)
+
+    # Réduction à 3 mots/sous-titre si la vidéo de fond est en portrait (9:16)
+    if is_portrait_video(background_video_source):
+        log("  📱 Format portrait détecté → regroupement SRT à 3 mots/sous-titre", log_file)
+        portrait_srt = work_dir / "final_subtitles_portrait.srt"
+        regroup_srt_by_word_count(raw_srt, portrait_srt, max_words=3, log_file=log_file)
+        raw_srt = portrait_srt
+    else:
+        log("  🖥️  Format paysage → SRT à 5 mots/sous-titre (défaut Whisper)", log_file)
 
     # ── Étape 4 : Transitions prière ────────────────────────────────────────
     log("\n🙏 Étape 4/7 : Détection des transitions de prière...", log_file)

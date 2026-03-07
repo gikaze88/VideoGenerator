@@ -111,6 +111,54 @@ def detect_prayer_transitions(srt_path: Path) -> list[int]:
     return points
 
 
+def regroup_srt_by_word_count(
+    srt_path: Path,
+    output_srt: Path,
+    max_words: int = 3,
+    log_file: Path | None = None,
+):
+    """
+    Post-traitement SRT : regroupe ou découpe les segments pour respecter max_words mots par sous-titre.
+    Utilisé notamment en mode portrait (9:16) où on passe de 5 à 3 mots max.
+    Le timing est interpolé proportionnellement au nombre de mots.
+    """
+    subtitles = parse_srt_file(srt_path)
+    result = []
+    new_index = 1
+
+    for sub in subtitles:
+        words = sub["text"].split()
+        if len(words) <= max_words:
+            result.append({
+                "index": new_index,
+                "start_time": sub["start_time"],
+                "end_time": sub["end_time"],
+                "text": sub["text"],
+            })
+            new_index += 1
+        else:
+            # Découpe le segment en sous-segments de max_words mots avec timing interpolé
+            total_words = len(words)
+            duration = sub["end_time"] - sub["start_time"]
+            ms_per_word = duration / total_words
+            offset = sub["start_time"]
+
+            for i in range(0, total_words, max_words):
+                chunk_words = words[i:i + max_words]
+                chunk_start = offset + int(i * ms_per_word)
+                chunk_end = offset + int(min((i + max_words), total_words) * ms_per_word)
+                result.append({
+                    "index": new_index,
+                    "start_time": chunk_start,
+                    "end_time": chunk_end,
+                    "text": " ".join(chunk_words),
+                })
+                new_index += 1
+
+    write_srt(result, output_srt)
+    log(f"✅ SRT regroupé ({max_words} mots max) → {output_srt.name}", log_file)
+
+
 def adjust_srt_with_pauses(
     srt_path: Path,
     output_srt: Path,

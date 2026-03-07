@@ -73,6 +73,30 @@ def get_media_duration(path: str | Path) -> float:
     return float(result.stdout.decode().strip())
 
 
+def get_video_dimensions(path: str | Path) -> tuple[int, int]:
+    """Retourne (width, height) d'une vidéo via ffprobe."""
+    result = subprocess.run(
+        [
+            "ffprobe", "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-of", "csv=s=x:p=0",
+            str(path),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    raw = result.stdout.decode().strip()
+    w, h = raw.split("x")
+    return int(w), int(h)
+
+
+def is_portrait_video(path: str | Path) -> bool:
+    """Retourne True si la vidéo est en format portrait (hauteur > largeur, ratio ≈ 9:16)."""
+    w, h = get_video_dimensions(path)
+    return h > w
+
+
 def escape_ffmpeg_path_windows(path: str | Path) -> str:
     """
     Échappe un chemin Windows pour l'utiliser dans un filtre FFmpeg subtitles=.
