@@ -140,9 +140,19 @@ FRENCH_NUMBERS = {
     "cent-quatorze": 114, "cent-quinze": 115, "cent-seize": 116,
     "cent-dix-sept": 117, "cent-dix-huit": 118, "cent-dix-neuf": 119,
     "cent-vingt": 120, "cent-vingt-et-un": 121, "cent-vingt-deux": 122,
-    "cent-trente": 130, "cent-trente-et-un": 131,
-    "cent-quarante": 140, "cent-quarante-et-un": 141, "cent-quarante-sept": 147,
-    "cent-cinquante": 150,
+    "cent-vingt-trois": 123, "cent-vingt-quatre": 124, "cent-vingt-cinq": 125,
+    "cent-vingt-six": 126, "cent-vingt-sept": 127, "cent-vingt-huit": 128, "cent-vingt-neuf": 129,
+    "cent-trente": 130, "cent-trente-et-un": 131, "cent-trente-deux": 132,
+    "cent-trente-trois": 133, "cent-trente-quatre": 134, "cent-trente-cinq": 135,
+    "cent-trente-six": 136, "cent-trente-sept": 137, "cent-trente-huit": 138, "cent-trente-neuf": 139,
+    "cent-quarante": 140, "cent-quarante-et-un": 141, "cent-quarante-deux": 142,
+    "cent-quarante-trois": 143, "cent-quarante-quatre": 144, "cent-quarante-cinq": 145,
+    "cent-quarante-six": 146, "cent-quarante-sept": 147, "cent-quarante-huit": 148, "cent-quarante-neuf": 149,
+    "cent-cinquante": 150, "cent-cinquante-et-un": 151, "cent-cinquante-deux": 152,
+    "cent-cinquante-trois": 153, "cent-cinquante-cinq": 155,
+    "cent-soixante": 160, "cent-soixante-dix": 170,
+    "cent-quatre-vingt": 180, "cent-quatre-vingts": 180,
+    "cent-quatre-vingt-dix": 190, "cent-quatre-vingt-dix-neuf": 199,
     "deux-cents": 200, "deux-cent": 200,
 }
 
@@ -293,12 +303,19 @@ REF_PATTERNS = [
     (rf'[Ee]n\s+(premier|première|deuxième|second|seconde|troisième)\s+({_BK})\s+({_NW})\s+(?:versets?\s+)?({_NW})', 'ordinal'),
     (rf'[Dd]it\s+dans\s+(premier|première|deuxième|second|seconde|troisième)\s+({_BK})\s+({_NW})\s+({_NW})', 'ordinal'),
     (rf'[Dd]ans\s+(premier|première|deuxième|second|seconde|troisième)\s+({_BK})\s+({_NW})\s+({_NW})', 'ordinal'),
-    # ── Chapitre composé : "cent N VERSE" (ex: psaume cent sept vingt = 107:20) ──
-    (rf'[Dd]écl[aà]re\s+dans\s+({_BK})\s+cent\s+([a-zà-ÿ]+)\s+([a-zà-ÿ\-]+)', 'compound_cent'),
-    (rf'[Dd]it\s+dans\s+({_BK})\s+cent\s+([a-zà-ÿ]+)\s+([a-zà-ÿ\-]+)', 'compound_cent'),
-    (rf'[Dd]ans\s+(?:le\s+)?({_BK})\s+cent\s+([a-zà-ÿ]+)\s+([a-zà-ÿ\-]+)\s+à\s+([a-zà-ÿ\-]+)', 'compound_cent_range'),
-    (rf'[Dd]ans\s+(?:le\s+)?({_BK})\s+cent\s+([a-zà-ÿ]+)\s+([a-zà-ÿ\-]+)', 'compound_cent'),
-    (rf'[Ee]n\s+({_BK})\s+cent\s+([a-zà-ÿ]+)\s+([a-zà-ÿ\-]+)', 'compound_cent'),
+    # ── Chapitre composé "cent" : avec mot-clé "verset" (priorité haute, g[1] accepte tirets) ──
+    # "psaume cent trente-neuf, verset quatorze" → PSAUMES 139:14
+    (rf'[Dd]écl[aà]re\s+dans\s+(?:le\s+)?({_BK})\s+cent\s+([a-zà-ÿ\-]+),?\s+versets?\s+([a-zà-ÿ\-]+)', 'compound_cent'),
+    (rf'[Dd]it\s+dans\s+(?:le\s+)?({_BK})\s+cent\s+([a-zà-ÿ\-]+),?\s+versets?\s+([a-zà-ÿ\-]+)', 'compound_cent'),
+    (rf'[Dd]ans\s+(?:le\s+)?({_BK})\s+cent\s+([a-zà-ÿ\-]+),?\s+versets?\s+([a-zà-ÿ\-]+)', 'compound_cent'),
+    (rf'[Ee]n\s+(?:le\s+)?({_BK})\s+cent\s+([a-zà-ÿ\-]+),?\s+versets?\s+([a-zà-ÿ\-]+)', 'compound_cent'),
+    # ── Chapitre composé "cent" : sans mot-clé verset (g[1] accepte tirets) ──
+    # "psaume cent sept vingt" → PSAUMES 107:20
+    (rf'[Dd]écl[aà]re\s+dans\s+({_BK})\s+cent\s+([a-zà-ÿ\-]+)\s+([a-zà-ÿ\-]+)', 'compound_cent'),
+    (rf'[Dd]it\s+dans\s+({_BK})\s+cent\s+([a-zà-ÿ\-]+)\s+([a-zà-ÿ\-]+)', 'compound_cent'),
+    (rf'[Dd]ans\s+(?:le\s+)?({_BK})\s+cent\s+([a-zà-ÿ\-]+)\s+([a-zà-ÿ\-]+)\s+à\s+([a-zà-ÿ\-]+)', 'compound_cent_range'),
+    (rf'[Dd]ans\s+(?:le\s+)?({_BK})\s+cent\s+([a-zà-ÿ\-]+)\s+([a-zà-ÿ\-]+)', 'compound_cent'),
+    (rf'[Ee]n\s+({_BK})\s+cent\s+([a-zà-ÿ\-]+)\s+([a-zà-ÿ\-]+)', 'compound_cent'),
     # ── "Et dans / dans BOOK WORD WORD" (3 mots simples sans mots-clés) ─────
     (rf'[Ee]t\s+dans\s+({_BK})\s+({_NW})\s+({_NW})', 'std'),
     (rf'[Dd]ans\s+({_BK})\s+({_NW})\s+({_NW})\s+à\s+({_NW})', 'range'),
