@@ -140,9 +140,20 @@ FRENCH_NUMBERS = {
     "cent-quatorze": 114, "cent-quinze": 115, "cent-seize": 116,
     "cent-dix-sept": 117, "cent-dix-huit": 118, "cent-dix-neuf": 119,
     "cent-vingt": 120, "cent-vingt-et-un": 121, "cent-vingt-deux": 122,
-    "cent-trente": 130, "cent-trente-et-un": 131,
-    "cent-quarante": 140, "cent-quarante-et-un": 141, "cent-quarante-sept": 147,
-    "cent-cinquante": 150,
+    "cent-vingt-trois": 123, "cent-vingt-quatre": 124, "cent-vingt-cinq": 125,
+    "cent-vingt-six": 126, "cent-vingt-sept": 127, "cent-vingt-huit": 128, "cent-vingt-neuf": 129,
+    "cent-trente": 130, "cent-trente-et-un": 131, "cent-trente-deux": 132,
+    "cent-trente-trois": 133, "cent-trente-quatre": 134, "cent-trente-cinq": 135,
+    "cent-trente-six": 136, "cent-trente-sept": 137, "cent-trente-huit": 138, "cent-trente-neuf": 139,
+    "cent-quarante": 140, "cent-quarante-et-un": 141, "cent-quarante-deux": 142,
+    "cent-quarante-trois": 143, "cent-quarante-quatre": 144, "cent-quarante-cinq": 145,
+    "cent-quarante-six": 146, "cent-quarante-sept": 147, "cent-quarante-huit": 148, "cent-quarante-neuf": 149,
+    "cent-cinquante": 150, "cent-cinquante-et-un": 151, "cent-cinquante-deux": 152,
+    "cent-cinquante-trois": 153, "cent-cinquante-quatre": 154, "cent-cinquante-cinq": 155,
+    "cent-cinquante-six": 156, "cent-cinquante-sept": 157, "cent-cinquante-huit": 158, "cent-cinquante-neuf": 159,
+    "cent-soixante": 160, "cent-soixante-et-un": 161, "cent-soixante-dix": 170, "cent-soixante-et-onze": 171,
+    "cent-quatre-vingt": 180, "cent-quatre-vingts": 180, "cent-quatre-vingt-un": 181,
+    "cent-quatre-vingt-dix": 190, "cent-quatre-vingt-onze": 191, "cent-quatre-vingt-dix-neuf": 199,
     "deux-cents": 200, "deux-cent": 200,
 }
 
@@ -162,128 +173,226 @@ def convert_french_number_to_digit(text: str) -> str:
 
 def normalize_text_for_search(text: str) -> str:
     text = text.lower()
-    text = re.sub(r'[«»"'',.\-:;!?]', '', text)
-    text = re.sub(r'\s+', ' ', text)
+    # Remove punctuation including apostrophe (using double-quoted string to avoid Python string concat issue)
+    text = re.sub(r"[«»\"''`',.;:!?\-]", "", text)
+    text = re.sub(r"\s+", " ", text)
     return text.strip()
 
 
-def find_verse_in_srt(verse_normalized: str, subtitles: list[dict], max_window: int = 30) -> dict | None:
+def find_verse_in_srt(
+    verse_normalized: str,
+    subtitles: list[dict],
+    start_after_index: int = 0,
+    max_window: int = 35,
+) -> dict | None:
     """
     Cherche un verset dans le SRT avec une fenêtre glissante.
-    Retourne le meilleur match (≥80% de couverture) ou None.
+    - start_after_index : ne cherche qu'à partir de cet index SRT (recherche séquentielle).
+    - Retourne le meilleur match (≥75% de couverture) ou None, avec l'index de fin de fenêtre.
     """
     verse_words = set(verse_normalized.split())
+    if not verse_words:
+        return None
+
     best_match = None
     best_coverage = 0.0
 
-    for window_size in range(5, max_window + 1):
-        for i in range(len(subtitles) - window_size + 1):
-            window = subtitles[i: i + window_size]
+    search_subs = subtitles[start_after_index:]
+
+    for window_size in range(3, max_window + 1):
+        for i in range(len(search_subs) - window_size + 1):
+            window = search_subs[i: i + window_size]
             combined = " ".join(s["text"] for s in window)
             combined_norm = normalize_text_for_search(combined)
             combined_words = set(combined_norm.split())
             common = combined_words & verse_words
-            coverage = len(common) / len(verse_words) if verse_words else 0
+            coverage = len(common) / len(verse_words)
 
-            if coverage >= 0.80 and coverage > best_coverage:
+            if coverage >= 0.75 and coverage > best_coverage:
                 best_coverage = coverage
+                abs_start = start_after_index + i
+                abs_end = abs_start + window_size - 1
                 best_match = {
-                    "start_time": subtitles[i]["start_time"],
-                    "end_time": subtitles[i + window_size - 1]["end_time"],
+                    "start_time": subtitles[abs_start]["start_time"],
+                    "end_time": subtitles[abs_end]["end_time"],
                     "coverage": coverage,
+                    "end_index": abs_end,
                 }
 
     return best_match
 
 
-def extract_reference_from_source(verse_text: str, source_text: str) -> str:
+def _parse_reference_match(match: re.Match, ptype: str) -> str | None:
+    """Convertit un match regex en référence biblique formatée."""
+    g = match.groups()
+    if ptype == "std":
+        book = BIBLE_BOOKS.get(g[0].lower(), g[0].upper())
+        chapter = convert_french_number_to_digit(g[1])
+        verse_n = convert_french_number_to_digit(g[2])
+        return f"{book} {chapter}:{verse_n}"
+    elif ptype == "range":
+        book = BIBLE_BOOKS.get(g[0].lower(), g[0].upper())
+        chapter = convert_french_number_to_digit(g[1])
+        v_start = convert_french_number_to_digit(g[2])
+        v_end = convert_french_number_to_digit(g[3])
+        return f"{book} {chapter}:{v_start}-{v_end}"
+    elif ptype == "digits":
+        book = BIBLE_BOOKS.get(g[0].lower(), g[0].upper())
+        chapter = g[1]
+        verse_n = g[2] if g[2] else "1"
+        return f"{book} {chapter}:{verse_n}"
+    elif ptype == "modern":
+        book = BIBLE_BOOKS.get(g[0].lower(), g[0].upper())
+        chapter = g[1]
+        v_start = g[2]
+        v_end = g[3] if len(g) > 3 and g[3] else None
+        return f"{book} {chapter}:{v_start}-{v_end}" if v_end else f"{book} {chapter}:{v_start}"
+    elif ptype == "ordinal":
+        ordinal_map = {"premier": "1", "première": "1", "deuxième": "2",
+                       "second": "2", "seconde": "2", "troisième": "3"}
+        num = ordinal_map.get(g[0].lower(), "1")
+        book_full = f"{num} {g[1].lower()}"
+        book = BIBLE_BOOKS.get(book_full, g[1].upper())
+        chapter = convert_french_number_to_digit(g[2])
+        verse_n = convert_french_number_to_digit(g[3])
+        return f"{book} {chapter}:{verse_n}"
+    elif ptype == "standalone":
+        book_raw = g[0].strip()
+        book = BIBLE_BOOKS.get(book_raw.lower(), book_raw.upper())
+        chapter = g[1]
+        verse_n = g[2] if len(g) > 2 and g[2] else "1"
+        return f"{book} {chapter}:{verse_n}"
+    elif ptype == "compound_cent":
+        # "psaume cent sept vingt" → book=psaume, g1=cent (literal), g2=sept, g3=vingt
+        # chapter = cent + g2 (ex: cent-sept = 107), verse = g3
+        book = BIBLE_BOOKS.get(g[0].lower(), g[0].upper())
+        chapter = convert_french_number_to_digit(f"cent-{g[1]}")
+        verse_n = convert_french_number_to_digit(g[2])
+        return f"{book} {chapter}:{verse_n}"
+    elif ptype == "compound_cent_range":
+        # "psaume cent trois trois à cinq" → PSAUMES 103:3-5
+        book = BIBLE_BOOKS.get(g[0].lower(), g[0].upper())
+        chapter = convert_french_number_to_digit(f"cent-{g[1]}")
+        v_start = convert_french_number_to_digit(g[2])
+        v_end = convert_french_number_to_digit(g[3])
+        return f"{book} {chapter}:{v_start}-{v_end}"
+    return None
+
+
+# Classes de caractères pour les noms de livres et nombres en français
+# [A-Za-zÀ-ÿ\-] couvre toutes les lettres latines accentuées (é, è, ê, î, ï, ô, û, ç…)
+_BK = r'[A-Za-zÀ-ÿ\-]+'   # nom de livre
+_NW = r'[a-zà-ÿ\-]+'      # mot numérique (chapitre/verset)
+
+REF_PATTERNS = [
+    # ── Avec mots-clés chapitre/verset ──────────────────────────────────────
+    # "Dans l'Évangile selon Matthieu, chapitre dix, verset trente"
+    (rf"[Dd]ans\s+l[''\u2019][ÉéEe]vangile\s+(?:selon|de)\s+({_BK}),?\s+chapitres?\s+({_NW}),?\s+versets?\s+({_NW})", 'std'),
+    # "Selon l'Évangile de Matthieu, chapitre X, verset Y"
+    (rf"[Ss]elon\s+l[''\u2019][ÉéEe]vangile\s+(?:de|selon)?\s*({_BK}),?\s+chapitres?\s+({_NW}),?\s+versets?\s+({_NW})", 'std'),
+    # "Dans l'Épître … BookName, chapitre X, verset Y"
+    (rf"[Dd]ans\s+l[''\u2019][ÉéEe]p[iî]tre\s+(?:\w+\s+){{0,4}}({_BK}),?\s+chapitres?\s+({_NW}),?\s+versets?\s+({_NW})", 'std'),
+    # "Dans / Au / Du / Selon / En … BOOK CHAPTER[,] verset VERSE"
+    # La virgule avant "verset" est optionnelle, "le/la" est optionnel
+    (rf'[Dd]ans\s+(?:le\s+)?({_BK})\s+chapitres?\s+({_NW}),?\s+versets?\s+({_NW})', 'std'),
+    (rf'[Dd]ans\s+(?:le\s+)?({_BK})\s+({_NW}),?\s+versets?\s+({_NW})', 'std'),
+    (rf'[Ee]n\s+(?:le\s+)?({_BK})\s+({_NW}),?\s+versets?\s+({_NW})', 'std'),
+    (rf'[Ee]t\s+en\s+(?:le\s+)?({_BK})\s+({_NW}),?\s+versets?\s+({_NW})', 'std'),
+    (rf'[Aa]u\s+(?:le\s+)?({_BK})\s+({_NW}),?\s+versets?\s+({_NW})', 'std'),
+    (rf'[Dd]u\s+(?:le\s+)?({_BK})\s+({_NW}),?\s+versets?\s+({_NW})', 'std'),
+    (rf'[Ss]elon\s+(?:le\s+)?({_BK})\s+({_NW}),?\s+versets?\s+({_NW})', 'std'),
+    (rf"[Dd]'après\s+(?:le\s+)?({_BK})\s+({_NW}),?\s+versets?\s+({_NW})", 'std'),
+    # Variants avec "Au/Du" pour les chapitres "cent" composés
+    (rf'[Aa]u\s+(?:le\s+)?({_BK})\s+cent\s+([a-zà-ÿ\-]+),?\s+versets?\s+([a-zà-ÿ\-]+)', 'compound_cent'),
+    (rf'[Dd]u\s+(?:le\s+)?({_BK})\s+cent\s+([a-zà-ÿ\-]+),?\s+versets?\s+([a-zà-ÿ\-]+)', 'compound_cent'),
+    (rf'[Ss]elon\s+(?:le\s+)?({_BK})\s+cent\s+([a-zà-ÿ\-]+),?\s+versets?\s+([a-zà-ÿ\-]+)', 'compound_cent'),
+    # Sans mot-clé "verset" (chapitre + verset successifs)
+    (rf'[Ss]elon\s+(?:le\s+)?({_BK})\s+({_NW})\s+({_NW})', 'std'),
+    (rf"[Dd]'après\s+({_BK})\s+({_NW})\s+({_NW})", 'std'),
+    # ── Ordinal (deuxième Timothée…) ─────────────────────────────────────────
+    (rf'[Dd]ans\s+(?:le\s+)?(premier|première|deuxième|second|seconde|troisième)\s+({_BK})\s+({_NW})\s+(?:versets?\s+)?({_NW})', 'ordinal'),
+    (rf'[Ee]n\s+(premier|première|deuxième|second|seconde|troisième)\s+({_BK})\s+({_NW})\s+(?:versets?\s+)?({_NW})', 'ordinal'),
+    (rf'[Dd]it\s+dans\s+(premier|première|deuxième|second|seconde|troisième)\s+({_BK})\s+({_NW})\s+({_NW})', 'ordinal'),
+    (rf'[Dd]ans\s+(premier|première|deuxième|second|seconde|troisième)\s+({_BK})\s+({_NW})\s+({_NW})', 'ordinal'),
+    # ── Chapitre composé "cent" : avec mot-clé "verset" (priorité haute, g[1] accepte tirets) ──
+    # "psaume cent trente-neuf, verset quatorze" → PSAUMES 139:14
+    (rf'[Dd]écl[aà]re\s+dans\s+(?:le\s+)?({_BK})\s+cent\s+([a-zà-ÿ\-]+),?\s+versets?\s+([a-zà-ÿ\-]+)', 'compound_cent'),
+    (rf'[Dd]it\s+dans\s+(?:le\s+)?({_BK})\s+cent\s+([a-zà-ÿ\-]+),?\s+versets?\s+([a-zà-ÿ\-]+)', 'compound_cent'),
+    (rf'[Dd]ans\s+(?:le\s+)?({_BK})\s+cent\s+([a-zà-ÿ\-]+),?\s+versets?\s+([a-zà-ÿ\-]+)', 'compound_cent'),
+    (rf'[Ee]n\s+(?:le\s+)?({_BK})\s+cent\s+([a-zà-ÿ\-]+),?\s+versets?\s+([a-zà-ÿ\-]+)', 'compound_cent'),
+    # ── Chapitre composé "cent" : sans mot-clé verset (g[1] accepte tirets) ──
+    # "psaume cent sept vingt" → PSAUMES 107:20
+    (rf'[Dd]écl[aà]re\s+dans\s+({_BK})\s+cent\s+([a-zà-ÿ\-]+)\s+([a-zà-ÿ\-]+)', 'compound_cent'),
+    (rf'[Dd]it\s+dans\s+({_BK})\s+cent\s+([a-zà-ÿ\-]+)\s+([a-zà-ÿ\-]+)', 'compound_cent'),
+    (rf'[Dd]ans\s+(?:le\s+)?({_BK})\s+cent\s+([a-zà-ÿ\-]+)\s+([a-zà-ÿ\-]+)\s+à\s+([a-zà-ÿ\-]+)', 'compound_cent_range'),
+    (rf'[Dd]ans\s+(?:le\s+)?({_BK})\s+cent\s+([a-zà-ÿ\-]+)\s+([a-zà-ÿ\-]+)', 'compound_cent'),
+    (rf'[Ee]n\s+({_BK})\s+cent\s+([a-zà-ÿ\-]+)\s+([a-zà-ÿ\-]+)', 'compound_cent'),
+    # ── "Et dans / dans BOOK WORD WORD" (3 mots simples sans mots-clés) ─────
+    (rf'[Ee]t\s+dans\s+({_BK})\s+({_NW})\s+({_NW})', 'std'),
+    (rf'[Dd]ans\s+({_BK})\s+({_NW})\s+({_NW})\s+à\s+({_NW})', 'range'),
+    (rf'[Dd]ans\s+({_BK})\s+({_NW})\s*,\s*(?:versets?\s+)?({_NW})', 'std'),
+    (rf'[Dd]ans\s+(?:le\s+)?({_BK})\s+(\d+)(?:,?\s*versets?\s*(\d+))?', 'digits'),
+    (rf'[Ee]n\s+({_BK})\s+(\d+):(\d+)(?:-(\d+))?', 'modern'),
+    (rf'[Ss]elon\s+({_BK})\s+(\d+):(\d+)(?:-(\d+))?', 'modern'),
+    # "tu as dit dans Jean huit trente-deux"
+    (rf'[Dd]it\s+dans\s+({_BK})\s+({_NW})\s+({_NW})', 'std'),
+    # Catch-all 3 mots (en dernier pour éviter les faux positifs)
+    (rf'[Dd]ans\s+({_BK})\s+({_NW})\s+({_NW})', 'std'),
+    # ── Standalone numérique : "Jean 3:16", "1 Corinthiens 15:1-3" ──────────
+    (r'\b([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\-]+)\s+(\d+):(\d+)(?:-\d+)?', 'standalone'),
+    (r'\b(\d\s+[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\-]+)\s+(\d+):(\d+)(?:-\d+)?', 'standalone'),
+]
+
+
+def extract_reference_from_source(verse_text: str, source_text: str, log_file=None) -> str:
     """
-    Extrait la référence biblique depuis le texte source (cherche dans les 500 chars avant le verset).
+    Extrait la référence biblique depuis le texte source.
+    Cherche dans les 500 chars AVANT et 300 chars APRÈS le verset.
     """
     verse_start = verse_text[:50] if len(verse_text) > 50 else verse_text
     verse_pos = source_text.find(verse_start)
+    log(f"      [REF] verse_start={repr(verse_start[:40])} pos={verse_pos}", log_file)
     if verse_pos == -1:
-        verse_start = verse_text[:30]
-        verse_pos = source_text.find(verse_start)
+        verse_pos = source_text.find(verse_text[:30])
+        log(f"      [REF] fallback 30-char pos={verse_pos}", log_file)
     if verse_pos == -1:
+        log(f"      [REF] verset introuvable dans source_text", log_file)
         return "VERSET BIBLIQUE"
 
-    search_start = max(0, verse_pos - 500)
-    search_text = source_text[search_start:verse_pos]
+    verse_end_pos = verse_pos + len(verse_text)
 
-    ref_patterns = [
-        (r'[Dd]ans\s+(?:le\s+)?([A-Za-zéèê\-]+)\s+chapitres?\s+([a-zéèê\-]+)\s+versets?\s+([a-zéèê\-]+)', 'std'),
-        (r'[Dd]ans\s+(?:le\s+)?([A-Za-zéèê\-]+)\s+([a-zéèê\-]+)\s+versets?\s+([a-zéèê\-]+)', 'std'),
-        (r'[Ee]n\s+([A-Za-zéèê\-]+)\s+([a-zéèê\-]+)\s+versets?\s+([a-zéèê\-]+)', 'std'),
-        (r'[Ee]t\s+en\s+([A-Za-zéèê\-]+)\s+([a-zéèê\-]+)\s+versets?\s+([a-zéèê\-]+)', 'std'),
-        (r'[Ss]elon\s+([A-Za-zéèê\-]+)\s+([a-zéèê\-]+)\s+([a-zéèê\-]+)', 'std'),
-        (r"[Dd]'après\s+([A-Za-zéèê\-]+)\s+([a-zéèê\-]+)\s+([a-zéèê\-]+)", 'std'),
-        (r'[Ee]t\s+dans\s+([A-Za-zéèê\-]+)\s+([a-zéèê\-]+)\s+([a-zéèê\-]+)', 'std'),
-        (r'[Dd]ans\s+([A-Za-zéèê\-]+)\s+([a-zéèê\-]+)\s+([a-zéèê\-]+)\s+à\s+([a-zéèê\-]+)', 'range'),
-        (r'[Dd]ans\s+([A-Za-zéèê\-]+)\s+([a-zéèê\-]+)\s*,\s*(?:versets?\s+)?([a-zéèê\-]+)', 'std'),
-        (r'[Dd]ans\s+(?:le\s+)?([A-Za-zéèê]+)\s+(\d+)(?:,?\s*versets?\s*(\d+))?', 'digits'),
-        (r'[Ee]n\s+([A-Za-zéèê]+)\s+(\d+):(\d+)(?:-(\d+))?', 'modern'),
-        (r'[Ss]elon\s+([A-Za-zéèê]+)\s+(\d+):(\d+)(?:-(\d+))?', 'modern'),
-        (r'[Dd]ans\s+(?:le\s+)?(premier|première|deuxième|second|seconde|troisième)\s+([A-Za-zéèê\-]+)\s+([a-zéèê\-]+)\s+(?:versets?\s+)?([a-zéèê\-]+)', 'ordinal'),
-        (r'[Ee]n\s+(premier|première|deuxième|second|seconde|troisième)\s+([A-Za-zéèê\-]+)\s+([a-zéèê\-]+)\s+(?:versets?\s+)?([a-zéèê\-]+)', 'ordinal'),
-    ]
+    # Zone de recherche : 500 chars avant + 300 chars après le verset
+    before_start = max(0, verse_pos - 500)
+    after_end = min(len(source_text), verse_end_pos + 300)
+
+    search_before = source_text[before_start:verse_pos]
+    search_after = source_text[verse_end_pos:after_end]
 
     best_reference = None
-    best_distance = float("inf")
+    best_score = float("inf")
 
-    for pattern, ptype in ref_patterns:
-        for match in re.finditer(pattern, search_text, re.IGNORECASE):
-            distance = (verse_pos - search_start) - match.end()
-            if distance < 0 or distance >= best_distance:
-                continue
-            best_distance = distance
+    # Priorité 1 : chercher dans les 500 chars AVANT le verset
+    for pattern, ptype in REF_PATTERNS:
+        for match in re.finditer(pattern, search_before, re.IGNORECASE):
+            distance = len(search_before) - match.end()
+            if distance < best_score:
+                ref = _parse_reference_match(match, ptype)
+                if ref:
+                    best_score = distance
+                    best_reference = ref
 
-            if ptype == "std":
-                g = match.groups()
-                book = BIBLE_BOOKS.get(g[0].lower(), g[0].upper())
-                chapter = convert_french_number_to_digit(g[1])
-                verse_n = convert_french_number_to_digit(g[2])
-                best_reference = f"{book} {chapter}:{verse_n}"
+    # Priorité 2 : si rien trouvé avant, chercher dans les 300 chars APRÈS
+    if not best_reference:
+        for pattern, ptype in REF_PATTERNS:
+            for match in re.finditer(pattern, search_after, re.IGNORECASE):
+                distance = match.start()
+                if distance < best_score:
+                    ref = _parse_reference_match(match, ptype)
+                    if ref:
+                        best_score = distance
+                        best_reference = ref
 
-            elif ptype == "range":
-                g = match.groups()
-                book = BIBLE_BOOKS.get(g[0].lower(), g[0].upper())
-                chapter = convert_french_number_to_digit(g[1])
-                v_start = convert_french_number_to_digit(g[2])
-                v_end = convert_french_number_to_digit(g[3])
-                best_reference = f"{book} {chapter}:{v_start}-{v_end}"
-
-            elif ptype == "digits":
-                g = match.groups()
-                book = BIBLE_BOOKS.get(g[0].lower(), g[0].upper())
-                chapter = g[1]
-                verse_n = g[2] if g[2] else "1"
-                best_reference = f"{book} {chapter}:{verse_n}"
-
-            elif ptype == "modern":
-                g = match.groups()
-                book = BIBLE_BOOKS.get(g[0].lower(), g[0].upper())
-                chapter = g[1]
-                v_start = g[2]
-                v_end = g[3] if len(g) > 3 and g[3] else None
-                best_reference = (
-                    f"{book} {chapter}:{v_start}-{v_end}" if v_end else f"{book} {chapter}:{v_start}"
-                )
-
-            elif ptype == "ordinal":
-                g = match.groups()
-                ordinal_map = {
-                    "premier": "1", "première": "1",
-                    "deuxième": "2", "second": "2", "seconde": "2",
-                    "troisième": "3",
-                }
-                num = ordinal_map.get(g[0].lower(), "1")
-                book_full = f"{num} {g[1].lower()}"
-                book = BIBLE_BOOKS.get(book_full, g[1].upper())
-                chapter = convert_french_number_to_digit(g[2])
-                verse_n = convert_french_number_to_digit(g[3])
-                best_reference = f"{book} {chapter}:{verse_n}"
-
+    log(f"      [REF] best_reference={best_reference}", log_file)
     return best_reference or "VERSET BIBLIQUE"
 
 
@@ -298,20 +407,23 @@ def extract_verses_with_timestamps(
     2. Les cherche dans le SRT avec fenêtre glissante
     Retourne une liste de métadonnées avec timestamps.
     """
-    log("📖 Détection des versets bibliques...", log_file)
+    log("📖 Détection des versets bibliques... [bible.py v2]", log_file)
 
-    verse_pattern = r'[«"]([^»"]{30,}?)[»"]'
+    # Seulement «guillemets français» — évite les faux positifs des guillemets droits dans le texte
+    verse_pattern = r'«([^»]{30,}?)»'
     detected = [v.strip() for v in re.findall(verse_pattern, source_text) if len(v.strip()) >= 30]
     log(f"   {len(detected)} verset(s) détecté(s) dans le texte source", log_file)
 
     subtitles = parse_srt_file(srt_path)
     results = []
+    last_end_index = 0  # Sequential search: each verse starts after the previous one
 
     for i, verse_text in enumerate(detected, 1):
         verse_norm = normalize_text_for_search(verse_text)
-        match = find_verse_in_srt(verse_norm, subtitles)
+        match = find_verse_in_srt(verse_norm, subtitles, start_after_index=last_end_index)
         if match:
-            reference = extract_reference_from_source(verse_text, source_text)
+            last_end_index = match["end_index"]
+            reference = extract_reference_from_source(verse_text, source_text, log_file)
             results.append({
                 "reference": reference,
                 "text": verse_text,
@@ -321,7 +433,7 @@ def extract_verses_with_timestamps(
                 "end_time": ms_to_timecode(match["end_time"]),
                 "coverage": match["coverage"],
             })
-            log(f"   ✅ Verset #{i} trouvé : {reference}", log_file)
+            log(f"   ✅ Verset #{i} trouvé : {reference} ({match['coverage']:.0%})", log_file)
         else:
             log(f"   ⚠️  Verset #{i} non trouvé dans le SRT", log_file)
 

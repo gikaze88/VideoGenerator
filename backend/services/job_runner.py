@@ -127,9 +127,13 @@ def _dispatch_pipeline(style: str, script_text: str, work_dir: Path, job_dir: Pa
             raise FileNotFoundError("Aucun fichier audio .mp3/.wav/.m4a trouvé pour le style 'audio_srt'")
         if not srt_files:
             raise FileNotFoundError("Aucun fichier .srt trouvé pour le style 'audio_srt'")
+        # Vidéo de fond optionnelle : si fournie, portrait/paysage sera détecté
+        bg_video = work_dir / "background_video.mp4"
+        bg_video_arg = bg_video if bg_video.exists() else None
         from backend.services.pipelines.pipeline_audio_srt import run_pipeline_audio_srt
         return run_pipeline_audio_srt(
-            script_text, audio_files[0], srt_files[0], work_dir, job_dir, log_file
+            script_text, audio_files[0], srt_files[0], work_dir, job_dir, log_file,
+            background_video=bg_video_arg,
         )
 
     else:

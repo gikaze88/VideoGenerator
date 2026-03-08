@@ -16,8 +16,8 @@ const STYLE_INFO: Record<JobStyle, { label: string; description: string; extraFi
   },
   audio_srt: {
     label: 'Audio + SRT (sans TTS)',
-    description: 'Pas de TTS — vous fournissez l\'audio et les sous-titres. Idéal pour réutiliser un enregistrement.',
-    extraFiles: ['Fichier audio (MP3/WAV)', 'Fichier de sous-titres (SRT)'],
+    description: 'Pas de TTS — vous fournissez l\'audio et les sous-titres. Idéal pour réutiliser un enregistrement existant.',
+    extraFiles: ['Fichier audio (MP3/WAV)', 'Fichier SRT', 'Vidéo de fond (optionnelle)'],
   },
 }
 
@@ -133,21 +133,36 @@ export default function NewJob() {
           />
         )}
         {style === 'audio_srt' && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FileUpload
+                label="Fichier audio (MP3 / WAV)"
+                accept="audio/*"
+                file={audioFile}
+                onChange={setAudioFile}
+                required
+              />
+              <FileUpload
+                label="Fichier de sous-titres (SRT)"
+                accept=".srt"
+                file={srtFile}
+                onChange={setSrtFile}
+                required
+              />
+            </div>
             <FileUpload
-              label="Fichier audio (MP3 / WAV)"
-              accept="audio/*"
-              file={audioFile}
-              onChange={setAudioFile}
-              required
+              label="Vidéo de fond (MP4) — optionnelle"
+              accept="video/mp4,video/*"
+              file={bgVideo}
+              onChange={setBgVideo}
             />
-            <FileUpload
-              label="Fichier de sous-titres (SRT)"
-              accept=".srt"
-              file={srtFile}
-              onChange={setSrtFile}
-              required
-            />
+            {bgVideo && (
+              <p className="text-xs text-amber-400/80 flex items-center gap-1.5">
+                <Info size={12} />
+                Format détecté automatiquement : portrait (9:16) → 3 mots/ligne · paysage (16:9) → 5 mots/ligne.
+                Sans vidéo de fond, les clips de videos_db sont utilisés.
+              </p>
+            )}
           </div>
         )}
 

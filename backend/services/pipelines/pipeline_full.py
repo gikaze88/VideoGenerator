@@ -19,11 +19,6 @@ from backend.services.pipelines.shared.srt import (
     adjust_srt_with_pauses,
     shift_srt_timing,
 )
-from backend.services.pipelines.shared.bible import (
-    extract_verses_with_timestamps,
-    save_verses_metadata,
-    shift_verses_timestamps,
-)
 from backend.services.pipelines.shared.video import (
     generate_background_from_videos_db,
     generate_final_video_standard,
@@ -77,7 +72,7 @@ def run_pipeline_full(
 
     # ── Étape 4 : Détection transitions prière ──────────────────────────────
     log("\n🙏 Étape 4/7 : Détection des transitions de prière...", log_file)
-    prayer_points = detect_prayer_transitions(raw_srt)
+    prayer_points = detect_prayer_transitions(raw_srt, script_text=script_clean, log_file=log_file)
 
     if prayer_points:
         log(f"  {len(prayer_points)} transition(s) détectée(s)", log_file)
@@ -97,6 +92,8 @@ def run_pipeline_full(
     # ── Étape 5 : Détection versets bibliques ────────────────────────────────
     log("\n📖 Étape 5/7 : Détection des versets bibliques...", log_file)
     source_text = clean_text_path.read_text(encoding="utf-8")
+    # Lazy import : évite les références stale avec uvicorn --reload
+    from backend.services.pipelines.shared.bible import extract_verses_with_timestamps
     verses = extract_verses_with_timestamps(source_text, final_srt, log_file)
 
     # ── Étape 6 : Assemblage vidéo de fond ──────────────────────────────────
@@ -112,28 +109,31 @@ def run_pipeline_full(
     mixed_audio = work_dir / "mixed_audio.m4a"
     mix_audio_with_background(boosted_audio, bg_music, mixed_audio, log_file)
 
-    # ── Étape 7 : Encodage final ─────────────────────────────────────────────
-    log("\n🎥 Étape 7/7 : Encodage de la vidéo finale...", log_file)
+    # ── Étape 7 : Encodage final (les deux versions toujours) ────────────────
+    log("\n🎥 Étape 7/7 : Encodage des vidéos finales...", log_file)
     shifted_srt = work_dir / "subtitles_shifted.srt"
     shift_srt_timing(final_srt, shifted_srt, VOICE_DELAY_SECONDS, log_file)
 
+    main_output: Path | None = None
+
     if verses:
+        from backend.services.pipelines.shared.bible import (
+            shift_verses_timestamps, save_verses_metadata,
+        )
         verses_shifted = shift_verses_timestamps(verses, VOICE_DELAY_SECONDS * 1000)
         metadata_path = work_dir / "bible_verses_metadata.json"
         save_verses_metadata(verses_shifted, metadata_path)
 
-        final_video = output_dir / "final_video_with_overlays.mp4"
-        success = generate_final_video_with_overlays(
-            background_video, mixed_audio, metadata_path, shifted_srt, final_video, log_file
+        overlay_video = output_dir / "final_video_with_overlays.mp4"
+        generate_final_video_with_overlays(
+            background_video, mixed_audio, metadata_path, shifted_srt, overlay_video, log_file
         )
-    else:
-        final_video = output_dir / "final_video_standard.mp4"
-        success = generate_final_video_standard(
-            background_video, mixed_audio, shifted_srt, final_video, log_file
-        )
+        main_output = overlay_video
 
-    if not success:
-        raise RuntimeError("Échec de l'encodage de la vidéo finale")
+    standard_video = output_dir / "final_video_standard.mp4"
+    generate_final_video_standard(background_video, mixed_audio, shifted_srt, standard_video, log_file)
+    if main_output is None:
+        main_output = standard_video
 
-    log(f"\n🎉 Pipeline FULL terminé → {final_video.name}", log_file)
-    return final_video
+    log(f"\n🎉 Pipeline FULL terminé → {main_output.name}", log_file)
+    return main_output
