@@ -104,7 +104,7 @@ async def upload_job_to_youtube(
       - privacy      : "private" | "unlisted" | "public"  (défaut: private)
       - category_id  : ID catégorie YouTube (27 = Education, 22 = People & Blogs)
       - playlist_id  : ID de playlist (optionnel)
-      - filename     : nom du fichier mp4 à uploader (ex: final_video_with_overlays.mp4)
+      - filename     : nom du fichier mp4 à uploader (ex: quand_tu_te_sens_seul_overlay.mp4)
       - thumbnail    : fichier image à définir comme miniature (optionnel)
     """
     from backend.services.youtube import is_authenticated, upload_video
