@@ -21,11 +21,6 @@ from backend.services.pipelines.shared.srt import (
     shift_srt_timing,
     regroup_srt_by_word_count,
 )
-from backend.services.pipelines.shared.bible import (
-    extract_verses_with_timestamps,
-    save_verses_metadata,
-    shift_verses_timestamps,
-)
 from backend.services.pipelines.shared.video import (
     loop_video_to_duration,
     generate_background_from_videos_db,
@@ -113,6 +108,8 @@ def run_pipeline_audio_srt(
     # ── Étape 4 : Versets bibliques ───────────────────────────────────────────
     log("\n📖 Étape 4/6 : Détection des versets bibliques...", log_file)
     source_text = clean_text_path.read_text(encoding="utf-8")
+    # Lazy import : évite les références stale avec uvicorn --reload
+    from backend.services.pipelines.shared.bible import extract_verses_with_timestamps
     verses = extract_verses_with_timestamps(source_text, final_srt, log_file)
 
     # ── Étape 5 : Vidéo de fond ───────────────────────────────────────────────
@@ -132,29 +129,32 @@ def run_pipeline_audio_srt(
     mixed_audio = work_dir / "mixed_audio.m4a"
     mix_audio_with_background(boosted_audio, bg_music, mixed_audio, log_file)
 
-    # ── Étape 6 : Encodage final ──────────────────────────────────────────────
-    log("\n🎥 Étape 6/6 : Encodage de la vidéo finale...", log_file)
+    # ── Étape 6 : Encodage final (les deux versions toujours) ────────────────
+    log("\n🎥 Étape 6/6 : Encodage des vidéos finales...", log_file)
     shifted_srt = work_dir / "subtitles_shifted.srt"
     shift_srt_timing(final_srt, shifted_srt, VOICE_DELAY_SECONDS, log_file)
 
+    main_output: Path | None = None
+
     if verses:
+        from backend.services.pipelines.shared.bible import (
+            shift_verses_timestamps, save_verses_metadata,
+        )
         verses_shifted = shift_verses_timestamps(verses, VOICE_DELAY_SECONDS * 1000)
         metadata_path = work_dir / "bible_verses_metadata.json"
         save_verses_metadata(verses_shifted, metadata_path)
 
-        final_video = output_dir / "final_video_with_overlays.mp4"
-        success = generate_final_video_with_overlays(
-            bg_video, mixed_audio, metadata_path, shifted_srt, final_video, log_file,
+        overlay_video = output_dir / "final_video_with_overlays.mp4"
+        generate_final_video_with_overlays(
+            bg_video, mixed_audio, metadata_path, shifted_srt, overlay_video, log_file,
             portrait_mode=portrait_mode,
         )
-    else:
-        final_video = output_dir / "final_video_standard.mp4"
-        success = generate_final_video_standard(
-            bg_video, mixed_audio, shifted_srt, final_video, log_file
-        )
+        main_output = overlay_video
 
-    if not success:
-        raise RuntimeError("Échec de l'encodage de la vidéo finale")
+    standard_video = output_dir / "final_video_standard.mp4"
+    generate_final_video_standard(bg_video, mixed_audio, shifted_srt, standard_video, log_file)
+    if main_output is None:
+        main_output = standard_video
 
-    log(f"\n🎉 Pipeline AUDIO+SRT terminé → {final_video.name}", log_file)
-    return final_video
+    log(f"\n🎉 Pipeline AUDIO+SRT terminé → {main_output.name}", log_file)
+    return main_output
