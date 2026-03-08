@@ -58,24 +58,34 @@ def generate_audio_chunks(text: str, work_dir: Path, log_file: Path) -> list[Pat
                 "similarity_boost": 0.75,
             },
         }
-        max_retries = 3
+        # Timeout généreux : 4900 chars ≈ 5-7 min d'audio → ElevenLabs prend max ~3 min
+        # en charge élevée. On ne retry PAS sur timeout pour éviter de payer deux fois.
+        # On retry uniquement sur les erreurs réseau transitoires (connexion, reset…).
+        ELEVENLABS_TIMEOUT = 600   # 10 min : couvre tous les cas réels sans double-facturation
+        MAX_NET_RETRIES = 2        # retry uniquement si coupure réseau (pas timeout)
+
         response = None
-        for attempt in range(1, max_retries + 1):
+        for attempt in range(1, MAX_NET_RETRIES + 1):
             try:
+                log(f"  📡 Envoi chunk {i} ({len(chunk)} chars) à ElevenLabs...", log_file)
                 response = requests.post(
-                    api_url, headers=headers, json=payload, timeout=300
+                    api_url, headers=headers, json=payload, timeout=ELEVENLABS_TIMEOUT
                 )
                 break
             except requests.exceptions.Timeout:
-                if attempt < max_retries:
-                    wait = attempt * 15
-                    log(f"  ⏳ Timeout chunk {i} (tentative {attempt}/{max_retries}), nouvelle tentative dans {wait}s...", log_file)
+                # Pas de retry : ElevenLabs a probablement déjà généré l'audio (coût réel).
+                raise RuntimeError(
+                    f"ElevenLabs n'a pas répondu en {ELEVENLABS_TIMEOUT}s pour le chunk {i} "
+                    f"({len(chunk)} chars). ElevenLabs est probablement surchargé — réessaie plus tard."
+                )
+            except requests.exceptions.ConnectionError as e:
+                # Coupure réseau transitoire : on peut retry sans risque de double-facturation.
+                if attempt < MAX_NET_RETRIES:
+                    wait = attempt * 10
+                    log(f"  ⚠️  Erreur réseau chunk {i} (tentative {attempt}/{MAX_NET_RETRIES}), retry dans {wait}s...", log_file)
                     time.sleep(wait)
                 else:
-                    raise RuntimeError(
-                        f"ElevenLabs timeout après {max_retries} tentatives pour le chunk {i} "
-                        f"({len(chunk)} chars). Le texte est peut-être trop long ou ElevenLabs est surchargé."
-                    )
+                    raise RuntimeError(f"Erreur réseau ElevenLabs après {MAX_NET_RETRIES} tentatives : {e}")
 
         if response.status_code != 200:
             try:
