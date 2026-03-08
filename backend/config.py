@@ -40,3 +40,7 @@ PRAYER_PAUSE_DURATION = 3.0   # Durée des silences de prière en secondes
 AUDIO_BOOST_DB = 10           # Boost audio en dB
 BG_MUSIC_VOLUME = 0.2         # Volume musique de fond (0-1)
 TTS_CHUNK_MAX_CHARS = 4900    # Taille max des chunks ElevenLabs
+
+# YouTube OAuth 2.0
+CLIENT_SECRETS_PATH = PROJECT_ROOT / "client_secrets.json"
+YOUTUBE_TOKEN_PATH = PROJECT_ROOT / "youtube_token.json"
