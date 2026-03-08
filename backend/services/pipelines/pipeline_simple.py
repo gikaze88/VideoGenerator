@@ -87,7 +87,7 @@ def run_pipeline_simple(
 
     # ── Étape 4 : Transitions prière ────────────────────────────────────────
     log("\n🙏 Étape 4/7 : Détection des transitions de prière...", log_file)
-    prayer_points = detect_prayer_transitions(raw_srt)
+    prayer_points = detect_prayer_transitions(raw_srt, script_text=script_clean, log_file=log_file)
 
     if prayer_points:
         log(f"  {len(prayer_points)} transition(s) détectée(s)", log_file)

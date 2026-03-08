@@ -64,7 +64,7 @@ def run_pipeline_audio_srt(
 
     # ── Étape 3 : Détection transitions prière sur le SRT fourni ────────────
     log("\n🙏 Étape 3/6 : Détection des transitions de prière...", log_file)
-    prayer_points = detect_prayer_transitions(srt_file)
+    prayer_points = detect_prayer_transitions(srt_file, script_text=script_clean, log_file=log_file)
 
     if prayer_points:
         log(f"  {len(prayer_points)} transition(s) détectée(s)", log_file)
