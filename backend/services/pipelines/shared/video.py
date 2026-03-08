@@ -135,7 +135,9 @@ def loop_video_to_duration(
         "-stream_loop", str(loop_count),
         "-i", str(source_video),
         "-t", str(extended),
-        "-c", "copy",
+        "-vf", "setpts=PTS-STARTPTS",   # reset timestamps to avoid PTS discontinuities
+        "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+        "-an",
         str(output_video),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -194,6 +196,7 @@ def generate_final_video_with_overlays(
     srt_path: Path,
     output: Path,
     log_file: Path | None = None,
+    portrait_mode: bool = False,
 ) -> bool:
     """
     Génère la vidéo finale avec overlays bibliques (3 étapes : masque SRT, sous-titres, overlays).
@@ -288,22 +291,36 @@ def generate_final_video_with_overlays(
         )
 
         words = text.split()
-        lines, current = [], ""
-        for word in words:
-            test = (current + " " + word).strip()
-            if len(test) <= 50:
-                current = test
-            else:
-                if current:
-                    lines.append(current)
-                current = word
-        if current:
-            lines.append(current)
+        if portrait_mode:
+            # Portrait : 5 mots max par ligne (police plus petite, largeur réduite)
+            max_words_per_line = 5
+            lines = [
+                " ".join(words[k: k + max_words_per_line])
+                for k in range(0, len(words), max_words_per_line)
+            ]
+            verse_fontsize = 34
+        else:
+            # Paysage : wrapping basé sur le nombre de caractères (50 max)
+            lines, current = [], ""
+            for word in words:
+                test = (current + " " + word).strip()
+                if len(test) <= 50:
+                    current = test
+                else:
+                    if current:
+                        lines.append(current)
+                    current = word
+            if current:
+                lines.append(current)
+            verse_fontsize = 38
+
         if len(lines) > 8:
             lines = lines[:8]
             lines[-1] += "..."
 
-        y_positions = [280, 340, 400, 460, 520, 580, 640, 700]
+        # Y de départ : 280px, espacement de 55px entre lignes
+        y_start = 280
+        y_step = 55
         for j, line in enumerate(lines):
             line_file = output_dir / f"verse_{i}_line_{j}.txt"
             line_file.write_text(line, encoding="utf-8")
@@ -311,15 +328,9 @@ def generate_final_video_with_overlays(
             line_escaped = str(line_file.resolve()).replace("\\", "/").replace(":", "\\:")
             filters.append(
                 f"drawtext=textfile='{line_escaped}':"
-                f"fontsize=38:fontcolor=white:x=(w-text_w)/2:y={y_positions[j]}:"
+                f"fontsize={verse_fontsize}:fontcolor=white:x=(w-text_w)/2:y={y_start + j * y_step}:"
                 f"shadowcolor=black@0.8:shadowx=2:shadowy=2:enable={enable}"
             )
-
-        filters.append(
-            f"drawtext=textfile='{brand_escaped}':"
-            f"fontsize=24:fontcolor=white@0.9:x=20:y=20:"
-            f"shadowcolor=black@0.8:shadowx=2:shadowy=2:enable={enable}"
-        )
 
     vf = ",".join(filters)
     cmd_final = [
