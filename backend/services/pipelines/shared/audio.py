@@ -6,6 +6,7 @@ import os
 import random
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import requests
@@ -57,7 +58,25 @@ def generate_audio_chunks(text: str, work_dir: Path, log_file: Path) -> list[Pat
                 "similarity_boost": 0.75,
             },
         }
-        response = requests.post(api_url, headers=headers, json=payload, timeout=120)
+        max_retries = 3
+        response = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                response = requests.post(
+                    api_url, headers=headers, json=payload, timeout=300
+                )
+                break
+            except requests.exceptions.Timeout:
+                if attempt < max_retries:
+                    wait = attempt * 15
+                    log(f"  ⏳ Timeout chunk {i} (tentative {attempt}/{max_retries}), nouvelle tentative dans {wait}s...", log_file)
+                    time.sleep(wait)
+                else:
+                    raise RuntimeError(
+                        f"ElevenLabs timeout après {max_retries} tentatives pour le chunk {i} "
+                        f"({len(chunk)} chars). Le texte est peut-être trop long ou ElevenLabs est surchargé."
+                    )
+
         if response.status_code != 200:
             try:
                 error_detail = response.json()
