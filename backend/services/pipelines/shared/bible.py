@@ -149,10 +149,11 @@ FRENCH_NUMBERS = {
     "cent-quarante-trois": 143, "cent-quarante-quatre": 144, "cent-quarante-cinq": 145,
     "cent-quarante-six": 146, "cent-quarante-sept": 147, "cent-quarante-huit": 148, "cent-quarante-neuf": 149,
     "cent-cinquante": 150, "cent-cinquante-et-un": 151, "cent-cinquante-deux": 152,
-    "cent-cinquante-trois": 153, "cent-cinquante-cinq": 155,
-    "cent-soixante": 160, "cent-soixante-dix": 170,
-    "cent-quatre-vingt": 180, "cent-quatre-vingts": 180,
-    "cent-quatre-vingt-dix": 190, "cent-quatre-vingt-dix-neuf": 199,
+    "cent-cinquante-trois": 153, "cent-cinquante-quatre": 154, "cent-cinquante-cinq": 155,
+    "cent-cinquante-six": 156, "cent-cinquante-sept": 157, "cent-cinquante-huit": 158, "cent-cinquante-neuf": 159,
+    "cent-soixante": 160, "cent-soixante-et-un": 161, "cent-soixante-dix": 170, "cent-soixante-et-onze": 171,
+    "cent-quatre-vingt": 180, "cent-quatre-vingts": 180, "cent-quatre-vingt-un": 181,
+    "cent-quatre-vingt-dix": 190, "cent-quatre-vingt-onze": 191, "cent-quatre-vingt-dix-neuf": 199,
     "deux-cents": 200, "deux-cent": 200,
 }
 
@@ -291,12 +292,22 @@ REF_PATTERNS = [
     (rf"[Ss]elon\s+l[''\u2019][ÉéEe]vangile\s+(?:de|selon)?\s*({_BK}),?\s+chapitres?\s+({_NW}),?\s+versets?\s+({_NW})", 'std'),
     # "Dans l'Épître … BookName, chapitre X, verset Y"
     (rf"[Dd]ans\s+l[''\u2019][ÉéEe]p[iî]tre\s+(?:\w+\s+){{0,4}}({_BK}),?\s+chapitres?\s+({_NW}),?\s+versets?\s+({_NW})", 'std'),
-    # "Dans Matthieu chapitre dix verset trente"
+    # "Dans / Au / Du / Selon / En … BOOK CHAPTER[,] verset VERSE"
+    # La virgule avant "verset" est optionnelle, "le/la" est optionnel
     (rf'[Dd]ans\s+(?:le\s+)?({_BK})\s+chapitres?\s+({_NW}),?\s+versets?\s+({_NW})', 'std'),
-    (rf'[Dd]ans\s+(?:le\s+)?({_BK})\s+({_NW})\s+versets?\s+({_NW})', 'std'),
-    (rf'[Ee]n\s+({_BK})\s+({_NW})\s+versets?\s+({_NW})', 'std'),
-    (rf'[Ee]t\s+en\s+({_BK})\s+({_NW})\s+versets?\s+({_NW})', 'std'),
-    (rf'[Ss]elon\s+({_BK})\s+({_NW})\s+({_NW})', 'std'),
+    (rf'[Dd]ans\s+(?:le\s+)?({_BK})\s+({_NW}),?\s+versets?\s+({_NW})', 'std'),
+    (rf'[Ee]n\s+(?:le\s+)?({_BK})\s+({_NW}),?\s+versets?\s+({_NW})', 'std'),
+    (rf'[Ee]t\s+en\s+(?:le\s+)?({_BK})\s+({_NW}),?\s+versets?\s+({_NW})', 'std'),
+    (rf'[Aa]u\s+(?:le\s+)?({_BK})\s+({_NW}),?\s+versets?\s+({_NW})', 'std'),
+    (rf'[Dd]u\s+(?:le\s+)?({_BK})\s+({_NW}),?\s+versets?\s+({_NW})', 'std'),
+    (rf'[Ss]elon\s+(?:le\s+)?({_BK})\s+({_NW}),?\s+versets?\s+({_NW})', 'std'),
+    (rf"[Dd]'après\s+(?:le\s+)?({_BK})\s+({_NW}),?\s+versets?\s+({_NW})", 'std'),
+    # Variants avec "Au/Du" pour les chapitres "cent" composés
+    (rf'[Aa]u\s+(?:le\s+)?({_BK})\s+cent\s+([a-zà-ÿ\-]+),?\s+versets?\s+([a-zà-ÿ\-]+)', 'compound_cent'),
+    (rf'[Dd]u\s+(?:le\s+)?({_BK})\s+cent\s+([a-zà-ÿ\-]+),?\s+versets?\s+([a-zà-ÿ\-]+)', 'compound_cent'),
+    (rf'[Ss]elon\s+(?:le\s+)?({_BK})\s+cent\s+([a-zà-ÿ\-]+),?\s+versets?\s+([a-zà-ÿ\-]+)', 'compound_cent'),
+    # Sans mot-clé "verset" (chapitre + verset successifs)
+    (rf'[Ss]elon\s+(?:le\s+)?({_BK})\s+({_NW})\s+({_NW})', 'std'),
     (rf"[Dd]'après\s+({_BK})\s+({_NW})\s+({_NW})", 'std'),
     # ── Ordinal (deuxième Timothée…) ─────────────────────────────────────────
     (rf'[Dd]ans\s+(?:le\s+)?(premier|première|deuxième|second|seconde|troisième)\s+({_BK})\s+({_NW})\s+(?:versets?\s+)?({_NW})', 'ordinal'),
