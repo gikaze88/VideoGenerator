@@ -7,7 +7,7 @@ import {
 import {
   getJob, getJobLogs, getJobFiles, getDownloadUrl, formatDate, formatDuration,
   STATUS_LABELS, STATUS_COLORS, type Job, type JobStatus,
-  getYoutubeAuthStatus, initiateYoutubeAuth, revokeYoutubeToken,
+  getYoutubeAuthStatus, getYoutubeAuthUrl, revokeYoutubeToken,
   getYoutubePlaylists, uploadToYoutube, getYoutubeJobStatus,
   type YoutubePlaylist, type YoutubeUploadResult,
 } from '../api'
@@ -65,6 +65,7 @@ export default function JobDetail() {
   const [ytUploading, setYtUploading] = useState(false)
   const [ytResult, setYtResult] = useState<YoutubeUploadResult | null>(null)
   const [ytError, setYtError] = useState<string | null>(null)
+  const ytAuthPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   async function fetchJob() {
     if (!jobId) return
@@ -102,8 +103,27 @@ export default function JobDetail() {
     setYtAuthLoading(true)
     setYtError(null)
     try {
-      await initiateYoutubeAuth()
-      await checkYtAuth()
+      // 1) Demander l'URL d'authentification au backend
+      const { url } = await getYoutubeAuthUrl()
+      // 2) Ouvrir l'URL dans un nouvel onglet/fenêtre du navigateur courant
+      window.open(url, '_blank', 'noopener,noreferrer')
+      // 3) Poller le statut d'authentification toutes les 2 secondes
+      if (ytAuthPollRef.current) {
+        clearInterval(ytAuthPollRef.current)
+      }
+      ytAuthPollRef.current = setInterval(async () => {
+        try {
+          const { authenticated } = await getYoutubeAuthStatus()
+          if (authenticated) {
+            setYtAuthenticated(true)
+            clearInterval(ytAuthPollRef.current!)
+            ytAuthPollRef.current = null
+            await loadPlaylists()
+          }
+        } catch {
+          // on ignore les erreurs ponctuelles de polling
+        }
+      }, 2000)
     } catch (e: any) {
       setYtError(e.message)
     } finally {
@@ -116,6 +136,10 @@ export default function JobDetail() {
     setYtAuthenticated(false)
     setPlaylists([])
     setYtResult(null)
+    if (ytAuthPollRef.current) {
+      clearInterval(ytAuthPollRef.current)
+      ytAuthPollRef.current = null
+    }
   }
 
   async function handleYtUpload(e: React.FormEvent) {

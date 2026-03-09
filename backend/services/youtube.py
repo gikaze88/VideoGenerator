@@ -1,20 +1,26 @@
 """
 Service d'intégration YouTube Data API v3.
 
-Gère l'authentification OAuth 2.0 (flux Desktop App), l'upload de vidéos,
+Gère l'authentification OAuth 2.0, l'upload de vidéos,
 la gestion des miniatures et des playlists.
 
-Fonctionnement OAuth :
-  - Premier lancement : ouvre le navigateur pour la connexion Google.
-  - Le token est sauvegardé dans youtube_token.json (ignoré par git).
-  - Les lancements suivants : rafraîchissement automatique du token.
+Deux couches :
+  - Flux OAuth "smart" basé sur URL (Flow) :
+      * le backend génère une URL d'autorisation
+      * le frontend ouvre cette URL dans le navigateur courant
+      * Google redirige vers /api/youtube/oauth-callback avec ?code=...
+      * le backend échange le code contre un token et le sauvegarde
+  - Utilisation du token sauvegardé (Credentials) pour toutes les requêtes API.
 """
-import json
+from __future__ import annotations
+
+import threading
 from pathlib import Path
+from typing import Optional
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
+from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
@@ -26,6 +32,14 @@ SCOPES = [
     "https://www.googleapis.com/auth/youtube.upload",
     "https://www.googleapis.com/auth/youtube",
 ]
+
+# URL de redirection utilisée par Google pour renvoyer le code
+# Doit correspondre à celle déclarée dans la console Google (Authorized redirect URI)
+REDIRECT_URI = "http://localhost:8000/api/youtube/oauth-callback"
+
+# Flow OAuth en attente (entre /auth-url et /oauth-callback)
+_pending_flow_lock = threading.Lock()
+_pending_flow: Optional[Flow] = None
 
 
 def is_authenticated() -> bool:
@@ -39,34 +53,87 @@ def is_authenticated() -> bool:
         return False
 
 
+def _load_credentials() -> Optional[Credentials]:
+    """Charge les credentials depuis le disque sans déclencher d'OAuth interactif."""
+    if not YOUTUBE_TOKEN_PATH.exists():
+        return None
+    try:
+        creds = Credentials.from_authorized_user_file(str(YOUTUBE_TOKEN_PATH), SCOPES)
+    except Exception:
+        return None
+
+    if creds and not creds.valid and creds.expired and creds.refresh_token:
+        try:
+            creds.refresh(Request())
+            YOUTUBE_TOKEN_PATH.write_text(creds.to_json(), encoding="utf-8")
+        except Exception:
+            return None
+    return creds if creds and creds.valid else None
+
+
 def get_credentials() -> Credentials:
     """
-    Retourne des credentials valides.
-    Si le token est expiré, le rafraîchit automatiquement.
-    Si aucun token n'existe, ouvre le navigateur pour l'autorisation initiale.
+    Retourne des credentials valides basés sur le token sauvegardé.
+    Ne lance PAS de flux OAuth interactif : celui-ci est géré séparément
+    via get_auth_url() + exchange_code().
     """
-    creds = None
-
-    if YOUTUBE_TOKEN_PATH.exists():
-        creds = Credentials.from_authorized_user_file(str(YOUTUBE_TOKEN_PATH), SCOPES)
-
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            if not CLIENT_SECRETS_PATH.exists():
-                raise FileNotFoundError(
-                    f"client_secrets.json introuvable : {CLIENT_SECRETS_PATH}\n"
-                    "Téléchargez-le depuis Google Cloud Console."
-                )
-            flow = InstalledAppFlow.from_client_secrets_file(
-                str(CLIENT_SECRETS_PATH), SCOPES
-            )
-            creds = flow.run_local_server(port=0)
-
-        YOUTUBE_TOKEN_PATH.write_text(creds.to_json(), encoding="utf-8")
-
+    creds = _load_credentials()
+    if not creds:
+        raise RuntimeError(
+            "Aucun token YouTube valide trouvé. "
+            "Lancez d'abord le flux OAuth via /api/youtube/auth-url."
+        )
     return creds
+
+
+def get_auth_url() -> str:
+    """
+    Crée un Flow OAuth et retourne l'URL d'autorisation.
+    Le Flow est conservé en mémoire jusqu'à l'appel à exchange_code().
+    """
+    if not CLIENT_SECRETS_PATH.exists():
+        raise FileNotFoundError(
+            f"client_secrets.json introuvable : {CLIENT_SECRETS_PATH}\n"
+            "Téléchargez-le depuis Google Cloud Console."
+        )
+
+    global _pending_flow
+    flow = Flow.from_client_secrets_file(
+        str(CLIENT_SECRETS_PATH),
+        scopes=SCOPES,
+        redirect_uri=REDIRECT_URI,
+    )
+    auth_url, _state = flow.authorization_url(
+        access_type="offline",
+        include_granted_scopes="true",
+        prompt="consent",
+    )
+
+    with _pending_flow_lock:
+        _pending_flow = flow
+
+    return auth_url
+
+
+def exchange_code(code: str) -> None:
+    """
+    Complète le flux OAuth en échangeant le code contre un token,
+    puis sauvegarde les credentials dans youtube_token.json.
+    """
+    global _pending_flow
+    with _pending_flow_lock:
+        flow = _pending_flow
+        _pending_flow = None
+
+    if flow is None:
+        raise RuntimeError("Aucun flux OAuth en attente. Relancez la demande d'authentification.")
+
+    flow.fetch_token(code=code)
+    creds = flow.credentials
+    if not creds:
+        raise RuntimeError("Impossible de récupérer les credentials YouTube.")
+
+    YOUTUBE_TOKEN_PATH.write_text(creds.to_json(), encoding="utf-8")
 
 
 def get_youtube_client():

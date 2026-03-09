@@ -124,11 +124,11 @@ export async function getYoutubeAuthStatus(): Promise<{ authenticated: boolean }
   return res.json()
 }
 
-export async function initiateYoutubeAuth(): Promise<{ authenticated: boolean; message: string }> {
-  const res = await fetch(`${BASE}/youtube/auth`, { method: 'POST' })
+export async function getYoutubeAuthUrl(): Promise<{ url: string }> {
+  const res = await fetch(`${BASE}/youtube/auth-url`)
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
-    throw new Error(err.detail || 'Erreur authentification YouTube')
+    throw new Error(err.detail || 'Erreur génération URL YouTube')
   }
   return res.json()
 }

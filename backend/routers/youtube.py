@@ -2,22 +2,22 @@
 Routes API pour l'intégration YouTube.
 
 Endpoints :
-  GET  /api/youtube/auth-status   → vérifier si authentifié
-  POST /api/youtube/auth          → déclencher le flux OAuth (ouvre le navigateur)
-  POST /api/youtube/revoke        → révoquer le token (déconnexion)
-  GET  /api/youtube/playlists     → lister les playlists de la chaîne
+  GET  /api/youtube/auth-status     → vérifier si un token existe
+  GET  /api/youtube/auth-url        → générer l'URL d'autorisation OAuth (à ouvrir côté frontend)
+  GET  /api/youtube/oauth-callback  → callback Google (échange code ↔ token)
+  POST /api/youtube/revoke          → révoquer le token (déconnexion)
+  GET  /api/youtube/playlists       → lister les playlists de la chaîne
   POST /api/youtube/upload/{job_id} → uploader la vidéo d'un job sur YouTube
-  GET  /api/youtube/job/{job_id}  → statut YouTube d'un job (video_id, lien)
+  GET  /api/youtube/job/{job_id}    → statut YouTube d'un job (video_id, lien)
 """
-import asyncio
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Form, File, HTTPException, UploadFile
+from fastapi import APIRouter, Form, File, HTTPException, UploadFile, Request, Response
 from fastapi.concurrency import run_in_threadpool
 
 from backend.config import YOUTUBE_TOKEN_PATH
-from backend.database import get_connection, row_to_dict
+from backend.database import get_connection
 from backend.services.job_runner import get_job
 
 router = APIRouter(prefix="/api/youtube", tags=["youtube"])
@@ -43,19 +43,63 @@ async def auth_status():
     return {"authenticated": is_authenticated()}
 
 
-@router.post("/auth")
-async def authenticate():
+@router.get("/auth-url")
+async def get_auth_url():
     """
-    Déclenche le flux OAuth 2.0.
-    Ouvre le navigateur par défaut pour la connexion Google.
-    Bloquant jusqu'à ce que l'utilisateur complète l'autorisation.
+    Génère l'URL d'autorisation OAuth 2.0.
+    Le frontend doit ouvrir cette URL dans un nouvel onglet/fenêtre.
     """
-    def _do_auth():
-        from backend.services.youtube import get_credentials
-        get_credentials()
+    from backend.services.youtube import get_auth_url
 
-    await run_in_threadpool(_do_auth)
-    return {"authenticated": True, "message": "Authentification réussie"}
+    url = get_auth_url()
+    return {"url": url}
+
+
+@router.get("/oauth-callback")
+async def oauth_callback(request: Request):
+    """
+    Callback appelé par Google avec ?code=...
+    Échange le code contre un token, le sauvegarde, puis renvoie
+    une petite page HTML qui se ferme automatiquement.
+    """
+    from backend.services.youtube import exchange_code
+
+    code = request.query_params.get("code")
+    if not code:
+        raise HTTPException(status_code=400, detail="Paramètre 'code' manquant")
+
+    try:
+        await run_in_threadpool(exchange_code, code)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur OAuth YouTube : {e}")
+
+    html = """
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <title>Connexion YouTube réussie</title>
+    <style>
+      body { background:#020617; color:#e5e7eb; font-family:system-ui; display:flex;
+             align-items:center; justify-content:center; height:100vh; margin:0; }
+      .card { padding:1.5rem 2rem; border-radius:0.75rem; background:#020617;
+              border:1px solid #1f2937; box-shadow:0 20px 40px rgba(0,0,0,0.7); }
+      h1 { font-size:1rem; margin:0 0 .5rem; }
+      p { font-size:.85rem; margin:0; color:#9ca3af; }
+    </style>
+    <script>
+      setTimeout(function() { window.close(); }, 2000);
+    </script>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Connexion YouTube réussie ✅</h1>
+      <p>Vous pouvez revenir à l'application. Cette fenêtre va se fermer automatiquement.</p>
+    </div>
+  </body>
+</html>
+"""
+    return Response(content=html, media_type="text/html")
 
 
 @router.post("/revoke")
