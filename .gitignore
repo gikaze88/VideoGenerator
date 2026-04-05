@@ -376,3 +376,7 @@ temp/
 # touch videos_db/.gitkeep
 # touch background_songs/.gitkeep
 
+# YouTube OAuth credentials (secrets locaux, ne jamais commiter)
+client_secrets.json
+youtube_token.json
+

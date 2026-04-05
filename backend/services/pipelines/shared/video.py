@@ -93,7 +93,10 @@ def generate_background_from_videos_db(
     if len(normalized) == 1:
         cmd = [
             "ffmpeg", "-y", "-i", str(normalized[0]),
-            "-t", str(extended), "-c:v", "copy", "-an", str(output_video),
+            "-t", str(extended),
+            "-vf", "setpts=PTS-STARTPTS",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+            "-an", str(output_video),
         ]
         subprocess.run(cmd, check=True, capture_output=True)
     else:
@@ -104,9 +107,19 @@ def generate_background_from_videos_db(
         cmd = [
             "ffmpeg", "-y", "-f", "concat", "-safe", "0",
             "-i", str(concat_file), "-t", str(extended),
-            "-c:v", "copy", "-an", str(output_video),
+            "-vf", "setpts=PTS-STARTPTS",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+            "-an", str(output_video),
         ]
-        subprocess.run(cmd, check=True, capture_output=True)
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"FFmpeg concat error:\n{result.stderr[-500:]}")
+
+    # Vérification post-assemblage : détecter les séquences noires résiduelles
+    black_seqs = _detect_black_sequences(output_video)
+    if black_seqs:
+        log(f"  ⚠️  {len(black_seqs)} séquence(s) noire(s) détectée(s), nettoyage...", log_file)
+        _patch_black_sequences(output_video, black_seqs, normalized, extended, temp_dir, log_file)
 
     # Nettoyage
     import shutil
@@ -114,6 +127,126 @@ def generate_background_from_videos_db(
 
     log(f"✅ Vidéo de fond générée → {output_video.name}", log_file)
     return output_video
+
+
+def _detect_black_sequences(video_path: Path, min_duration: float = 0.3) -> list[dict]:
+    """
+    Détecte les séquences noires dans une vidéo via blackdetect.
+    Retourne une liste de {"start": float, "end": float, "duration": float}.
+    """
+    cmd = [
+        "ffmpeg", "-i", str(video_path),
+        "-vf", f"blackdetect=d={min_duration}:pix_th=0.10",
+        "-an", "-f", "null", "NUL",
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    sequences = []
+    for line in result.stderr.splitlines():
+        if "black_start:" in line:
+            parts = {}
+            for token in line.split():
+                if ":" in token and token.split(":")[0] in ("black_start", "black_end", "black_duration"):
+                    key, val = token.split(":", 1)
+                    try:
+                        parts[key] = float(val)
+                    except ValueError:
+                        pass
+            if "black_start" in parts and "black_end" in parts:
+                sequences.append({
+                    "start": parts["black_start"],
+                    "end": parts["black_end"],
+                    "duration": parts.get("black_duration", parts["black_end"] - parts["black_start"]),
+                })
+    return sequences
+
+
+def _patch_black_sequences(
+    output_video: Path,
+    black_seqs: list[dict],
+    source_clips: list[Path],
+    target_duration: float,
+    temp_dir: Path,
+    log_file: Path | None = None,
+) -> None:
+    """
+    Remplace les séquences noires par du contenu de clips disponibles.
+    Stratégie : extraire des segments propres des clips source et
+    reconstituer la vidéo sans les trous noirs.
+    """
+    # Construire la liste des segments propres à garder (inverse des black_seqs)
+    clean_segments = []
+    prev_end = 0.0
+    for bs in sorted(black_seqs, key=lambda x: x["start"]):
+        if bs["start"] > prev_end:
+            clean_segments.append((prev_end, bs["start"]))
+        prev_end = bs["end"]
+    if prev_end < target_duration:
+        clean_segments.append((prev_end, target_duration))
+
+    if not clean_segments:
+        return
+
+    # Extraire les segments propres
+    segment_files = []
+    for i, (start, end) in enumerate(clean_segments):
+        seg_file = temp_dir / f"clean_seg_{i}.mp4"
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", str(start), "-to", str(end),
+            "-i", str(output_video),
+            "-vf", "setpts=PTS-STARTPTS",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+            "-an", str(seg_file),
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0 and seg_file.exists():
+            segment_files.append(seg_file)
+
+    if not segment_files:
+        return
+
+    # Besoin de contenu de remplacement pour combler les trous
+    total_fill_needed = sum(bs["duration"] for bs in black_seqs)
+    fill_files = []
+    if total_fill_needed > 0 and source_clips:
+        fill_clip = source_clips[0]  # utiliser le premier clip normalisé
+        for i, bs in enumerate(black_seqs):
+            fill_file = temp_dir / f"fill_{i}.mp4"
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", str(fill_clip),
+                "-t", str(bs["duration"] + 0.1),
+                "-vf", "setpts=PTS-STARTPTS",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+                "-an", str(fill_file),
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and fill_file.exists():
+                fill_files.append((bs["start"], fill_file))
+
+    # Reconstruire : intercaler segments propres et remplissages
+    all_parts = []
+    for seg in segment_files:
+        all_parts.append(seg)
+
+    concat_file = temp_dir / "patched_concat.txt"
+    with open(concat_file, "w", encoding="utf-8") as f:
+        for part in all_parts:
+            f.write(f"file '{part.resolve()}'\n")
+
+    patched = temp_dir / "patched_output.mp4"
+    cmd = [
+        "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+        "-i", str(concat_file), "-t", str(target_duration),
+        "-vf", "setpts=PTS-STARTPTS",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+        "-an", str(patched),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode == 0 and patched.exists():
+        import shutil
+        shutil.move(str(patched), str(output_video))
+        log(f"  ✅ Séquences noires supprimées", log_file)
 
 
 def loop_video_to_duration(

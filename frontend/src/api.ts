@@ -17,6 +17,8 @@ export interface Job {
   completed_at: string | null
   output_video_path: string | null
   error_message: string | null
+  youtube_video_id: string | null
+  youtube_status: string | null
 }
 
 export interface JobLogs {
@@ -92,6 +94,94 @@ export async function getJobFiles(jobId: string): Promise<string[]> {
 export function getDownloadUrl(jobId: string, filename?: string): string {
   const base = `${BASE}/jobs/${jobId}/download`
   return filename ? `${base}?filename=${encodeURIComponent(filename)}` : base
+}
+
+// ── YouTube ───────────────────────────────────────────────────────────────────
+
+export interface YoutubePlaylist {
+  id: string
+  title: string
+}
+
+export interface YoutubeUploadResult {
+  video_id: string
+  url: string
+  studio_url: string
+  privacy: string
+  logs: string[]
+}
+
+export interface YoutubeJobStatus {
+  youtube_video_id: string | null
+  youtube_status: string | null
+  url: string | null
+  studio_url: string | null
+}
+
+export async function getYoutubeAuthStatus(): Promise<{ authenticated: boolean }> {
+  const res = await fetch(`${BASE}/youtube/auth-status`)
+  if (!res.ok) throw new Error('Erreur auth-status YouTube')
+  return res.json()
+}
+
+export async function getYoutubeAuthUrl(): Promise<{ url: string }> {
+  const res = await fetch(`${BASE}/youtube/auth-url`)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'Erreur génération URL YouTube')
+  }
+  return res.json()
+}
+
+export async function revokeYoutubeToken(): Promise<void> {
+  await fetch(`${BASE}/youtube/revoke`, { method: 'POST' })
+}
+
+export async function getYoutubePlaylists(): Promise<YoutubePlaylist[]> {
+  const res = await fetch(`${BASE}/youtube/playlists`)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'Erreur playlists YouTube')
+  }
+  const data = await res.json()
+  return data.playlists as YoutubePlaylist[]
+}
+
+export async function uploadToYoutube(
+  jobId: string,
+  params: {
+    title: string
+    description: string
+    tags: string
+    privacy: string
+    categoryId: string
+    playlistId: string
+    filename: string
+    thumbnail?: File
+  }
+): Promise<YoutubeUploadResult> {
+  const form = new FormData()
+  form.append('title', params.title)
+  form.append('description', params.description)
+  form.append('tags', params.tags)
+  form.append('privacy', params.privacy)
+  form.append('category_id', params.categoryId)
+  form.append('playlist_id', params.playlistId)
+  form.append('filename', params.filename)
+  if (params.thumbnail) form.append('thumbnail', params.thumbnail)
+
+  const res = await fetch(`${BASE}/youtube/upload/${jobId}`, { method: 'POST', body: form })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'Erreur upload YouTube')
+  }
+  return res.json()
+}
+
+export async function getYoutubeJobStatus(jobId: string): Promise<YoutubeJobStatus> {
+  const res = await fetch(`${BASE}/youtube/job/${jobId}`)
+  if (!res.ok) throw new Error('Erreur statut YouTube')
+  return res.json()
 }
 
 // ── Assets ───────────────────────────────────────────────────────────────────

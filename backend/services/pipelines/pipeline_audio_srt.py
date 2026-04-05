@@ -33,6 +33,7 @@ from backend.services.pipelines.shared.utils import (
     get_media_duration,
     is_portrait_video,
     log,
+    slug_from_title,
 )
 
 
@@ -135,6 +136,7 @@ def run_pipeline_audio_srt(
     shift_srt_timing(final_srt, shifted_srt, VOICE_DELAY_SECONDS, log_file)
 
     main_output: Path | None = None
+    slug = slug_from_title(title)
 
     if verses:
         from backend.services.pipelines.shared.bible import (
@@ -144,14 +146,14 @@ def run_pipeline_audio_srt(
         metadata_path = work_dir / "bible_verses_metadata.json"
         save_verses_metadata(verses_shifted, metadata_path)
 
-        overlay_video = output_dir / "final_video_with_overlays.mp4"
+        overlay_video = output_dir / f"{slug}_overlay.mp4"
         generate_final_video_with_overlays(
             bg_video, mixed_audio, metadata_path, shifted_srt, overlay_video, log_file,
             portrait_mode=portrait_mode,
         )
         main_output = overlay_video
 
-    standard_video = output_dir / "final_video_standard.mp4"
+    standard_video = output_dir / f"{slug}_standard.mp4"
     generate_final_video_standard(bg_video, mixed_audio, shifted_srt, standard_video, log_file)
     if main_output is None:
         main_output = standard_video

@@ -4,6 +4,7 @@ Logique extraite de video_gen_full.py / video_gen_simple.py / video_gen_audio_sr
 """
 import re
 import subprocess
+import unicodedata
 from pathlib import Path
 
 
@@ -40,6 +41,28 @@ def clean_script(text: str) -> str:
     text = re.sub(r'\s+', ' ', text).strip()
     text = re.sub(r'([a-zA-Z])\.([A-Z])', r'\1. \2', text)
     return text
+
+
+def slug_from_title(title: str, max_length: int = 80) -> str:
+    """
+    Génère un slug sûr pour les noms de fichiers à partir du titre.
+    Ex: "Quand tu te sens seul" → "quand_tu_te_sens_seul"
+    - minuscules, espaces → underscores, accents normalisés (é→e, etc.)
+    - caractères non alphanumériques supprimés
+    """
+    if not title or not title.strip():
+        return "video"
+    s = title.strip().lower()
+    # Normaliser les accents (NFD = décomposer, puis garder seulement les caractères non-combining)
+    s = unicodedata.normalize("NFD", s)
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    # Garder lettres, chiffres, espaces
+    s = re.sub(r"[^a-z0-9\s]", "", s)
+    s = re.sub(r"\s+", "_", s.strip("_"))
+    s = re.sub(r"_+", "_", s)  # pas de double underscore
+    if not s:
+        return "video"
+    return s[:max_length].rstrip("_")
 
 
 def split_text_smart(text: str, max_length: int = 4900) -> list[str]:

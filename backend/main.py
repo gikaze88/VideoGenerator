@@ -45,8 +45,10 @@ app.add_middleware(
 
 # ── Routes API (avant les mounts pour avoir la priorité) ─────────────────────
 from backend.routers import jobs, assets
+from backend.routers import youtube as youtube_router
 app.include_router(jobs.router)
 app.include_router(assets.router)
+app.include_router(youtube_router.router)
 
 
 @app.get("/api/ping")
