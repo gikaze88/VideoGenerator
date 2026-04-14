@@ -78,14 +78,14 @@ export default function NewJob() {
 
       {/* Assets info */}
       {assets && (
-        <div className="flex gap-4 text-sm">
+        <div className="flex flex-wrap gap-3 sm:gap-4 text-xs sm:text-sm">
           <div className="flex items-center gap-1.5 text-gray-500">
             <Video size={14} />
-            <span>{assets.videos_count} vidéo(s) dans videos_db</span>
+            <span>{assets.videos_count} vidéo(s)</span>
           </div>
           <div className="flex items-center gap-1.5 text-gray-500">
             <Music size={14} />
-            <span>{assets.songs_count} musique(s) disponible(s)</span>
+            <span>{assets.songs_count} musique(s)</span>
           </div>
         </div>
       )}
@@ -173,11 +173,11 @@ export default function NewJob() {
             <textarea
               value={scriptText}
               onChange={(e) => setScriptText(e.target.value)}
-              rows={14}
+              rows={10}
               placeholder={SCRIPT_PLACEHOLDER}
-              className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-gray-200
+              className="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 sm:px-4 py-3 text-sm text-gray-200
                          placeholder-gray-600 focus:outline-none focus:border-amber-500 focus:ring-1
-                         focus:ring-amber-500 resize-none font-mono leading-relaxed"
+                         focus:ring-amber-500 resize-y font-mono leading-relaxed"
             />
           </div>
           <div className="flex items-start gap-2 text-xs text-gray-500">

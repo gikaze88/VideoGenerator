@@ -253,22 +253,21 @@ export default function JobDetail() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <Link to="/history" className="text-gray-500 hover:text-gray-300 transition-colors">
+      <div className="flex items-start sm:items-center gap-2 sm:gap-3">
+        <Link to="/history" className="text-gray-500 hover:text-gray-300 transition-colors mt-1 sm:mt-0 shrink-0">
           <ArrowLeft size={20} />
         </Link>
-        <div className="flex-1">
-          <h1 className="text-xl font-bold text-gray-100">
+        <div className="flex-1 min-w-0">
+          <h1 className="text-base sm:text-xl font-bold text-gray-100 truncate">
             {job.title || 'Génération en cours…'}
           </h1>
           <p className="text-xs text-gray-500 mt-0.5">
-            Style : <span className="text-gray-400">{job.style}</span>
-            {' · '}ID : <span className="font-mono text-gray-600">{job.id.slice(0, 8)}…</span>
+            {job.style} · <span className="font-mono text-gray-600">{job.id.slice(0, 8)}…</span>
           </p>
         </div>
-        <span className={`text-xs font-medium px-3 py-1 rounded-full flex items-center gap-1.5 ${STATUS_COLORS[job.status]}`}>
+        <span className={`text-xs font-medium px-2 sm:px-3 py-1 rounded-full flex items-center gap-1 sm:gap-1.5 shrink-0 ${STATUS_COLORS[job.status]}`}>
           <StatusIcon status={job.status} />
-          {STATUS_LABELS[job.status]}
+          <span className="hidden sm:inline">{STATUS_LABELS[job.status]}</span>
         </span>
       </div>
 
@@ -329,17 +328,15 @@ export default function JobDetail() {
 
       {/* Téléchargement */}
       {job.status === 'completed' && (
-        <div className="bg-green-900/20 border border-green-800 rounded-xl p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-green-300 font-medium">Vidéo prête !</p>
-              <p className="text-green-500 text-sm mt-0.5">
-                Durée totale : {formatDuration(job.created_at, job.completed_at)}
-              </p>
-            </div>
+        <div className="bg-green-900/20 border border-green-800 rounded-xl p-3 sm:p-4 space-y-3">
+          <div>
+            <p className="text-green-300 font-medium text-sm sm:text-base">Vidéo prête !</p>
+            <p className="text-green-500 text-xs sm:text-sm mt-0.5">
+              Durée totale : {formatDuration(job.created_at, job.completed_at)}
+            </p>
           </div>
           {outputFiles.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {outputFiles.map((filename) => {
                 const isOverlay = filename.includes('overlay')
                 const label = isOverlay ? 'Avec versets bibliques' : 'Version standard'
@@ -348,7 +345,7 @@ export default function JobDetail() {
                     key={filename}
                     href={getDownloadUrl(job.id, filename)}
                     download={filename}
-                    className={`flex items-center gap-2 font-semibold px-4 py-2.5 rounded-xl transition-colors text-sm ${
+                    className={`flex items-center justify-center gap-2 font-semibold px-4 py-2.5 rounded-xl transition-colors text-sm ${
                       isOverlay
                         ? 'bg-amber-600 hover:bg-amber-500 text-white'
                         : 'bg-green-600 hover:bg-green-500 text-white'
@@ -364,8 +361,8 @@ export default function JobDetail() {
             <a
               href={getDownloadUrl(job.id)}
               download
-              className="flex items-center gap-2 bg-green-600 hover:bg-green-500 text-white
-                         font-semibold px-5 py-2.5 rounded-xl transition-colors w-fit"
+              className="flex items-center justify-center gap-2 bg-green-600 hover:bg-green-500 text-white
+                         font-semibold px-5 py-2.5 rounded-xl transition-colors w-full sm:w-fit"
             >
               <Download size={16} />
               Télécharger
@@ -376,13 +373,13 @@ export default function JobDetail() {
 
       {/* YouTube Upload */}
       {job.status === 'completed' && (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-4">
-          <div className="flex items-center justify-between">
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-3 sm:p-4 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <Youtube size={18} className="text-red-500" />
-              <span className="text-gray-200 font-medium">Publier sur YouTube</span>
+              <Youtube size={18} className="text-red-500 shrink-0" />
+              <span className="text-gray-200 font-medium text-sm sm:text-base">Publier sur YouTube</span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               {ytAuthenticated === true && (
                 <span className="text-xs text-green-400 flex items-center gap-1">
                   <CheckCircle size={12} /> Connecté
@@ -642,7 +639,7 @@ export default function JobDetail() {
             <Loader2 size={12} className="animate-spin ml-1" />
           )}
         </div>
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 h-80 overflow-y-auto font-mono text-xs text-gray-400 leading-relaxed">
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-3 sm:p-4 h-60 sm:h-80 overflow-y-auto font-mono text-xs text-gray-400 leading-relaxed">
           {logLines.length === 0 ? (
             <span className="text-gray-600">En attente de logs…</span>
           ) : (

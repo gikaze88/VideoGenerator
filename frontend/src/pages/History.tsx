@@ -101,74 +101,76 @@ function JobCard({
   deleting: boolean
 }) {
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex items-center gap-4
+    <div className="bg-gray-900 border border-gray-800 rounded-xl p-3 sm:p-4
                     hover:border-gray-700 transition-colors">
-      {/* Status dot */}
-      <div className={`w-2 h-2 rounded-full shrink-0 ${
-        job.status === 'completed' ? 'bg-green-500' :
-        job.status === 'running' ? 'bg-blue-400 animate-pulse' :
-        job.status === 'failed' ? 'bg-red-500' :
-        'bg-gray-600'
-      }`} />
+      <div className="flex items-start sm:items-center gap-3 sm:gap-4">
+        {/* Status dot */}
+        <div className={`w-2 h-2 rounded-full shrink-0 mt-1.5 sm:mt-0 ${
+          job.status === 'completed' ? 'bg-green-500' :
+          job.status === 'running' ? 'bg-blue-400 animate-pulse' :
+          job.status === 'failed' ? 'bg-red-500' :
+          'bg-gray-600'
+        }`} />
 
-      {/* Info */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <p className="font-medium text-gray-200 truncate">
-            {job.title || 'Sans titre'}
-          </p>
-          <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${STATUS_COLORS[job.status]}`}>
-            {STATUS_LABELS[job.status]}
-          </span>
-        </div>
-        <div className="text-xs text-gray-500 mt-0.5 flex gap-3">
-          <span>Style : <span className="text-gray-400">{job.style}</span></span>
-          <span>{formatDate(job.created_at)}</span>
-          {job.status === 'completed' && (
-            <span>Durée : {formatDuration(job.created_at, job.completed_at)}</span>
+        {/* Info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="font-medium text-gray-200 truncate text-sm sm:text-base">
+              {job.title || 'Sans titre'}
+            </p>
+            <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${STATUS_COLORS[job.status]}`}>
+              {STATUS_LABELS[job.status]}
+            </span>
+          </div>
+          <div className="text-xs text-gray-500 mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5">
+            <span>{job.style}</span>
+            <span>{formatDate(job.created_at)}</span>
+            {job.status === 'completed' && (
+              <span>{formatDuration(job.created_at, job.completed_at)}</span>
+            )}
+          </div>
+          {job.status === 'failed' && job.error_message && (
+            <p className="text-xs text-red-400 mt-1 truncate">{job.error_message}</p>
           )}
         </div>
-        {job.status === 'failed' && job.error_message && (
-          <p className="text-xs text-red-400 mt-1 truncate">{job.error_message}</p>
-        )}
-      </div>
 
-      {/* Actions */}
-      <div className="flex items-center gap-2 shrink-0">
-        <Link
-          to={`/jobs/${job.id}`}
-          className="p-2 text-gray-500 hover:text-gray-200 hover:bg-gray-800 rounded-lg transition-colors"
-          title="Voir les détails"
-        >
-          <Eye size={16} />
-        </Link>
-
-        {job.status === 'completed' && (
-          <a
-            href={getDownloadUrl(job.id)}
-            download
-            className="p-2 text-gray-500 hover:text-green-400 hover:bg-gray-800 rounded-lg transition-colors"
-            title="Télécharger la vidéo"
+        {/* Actions */}
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+          <Link
+            to={`/jobs/${job.id}`}
+            className="p-2 text-gray-500 hover:text-gray-200 hover:bg-gray-800 rounded-lg transition-colors"
+            title="Voir les détails"
           >
-            <Download size={16} />
-          </a>
-        )}
+            <Eye size={16} />
+          </Link>
 
-        {job.status !== 'running' && (
-          <button
-            onClick={() => onDelete(job.id)}
-            disabled={deleting}
-            className="p-2 text-gray-600 hover:text-red-400 hover:bg-gray-800 rounded-lg
-                       transition-colors disabled:opacity-40"
-            title="Supprimer"
-          >
-            {deleting ? (
-              <Loader2 size={16} className="animate-spin" />
-            ) : (
-              <Trash2 size={16} />
-            )}
-          </button>
-        )}
+          {job.status === 'completed' && (
+            <a
+              href={getDownloadUrl(job.id)}
+              download
+              className="p-2 text-gray-500 hover:text-green-400 hover:bg-gray-800 rounded-lg transition-colors"
+              title="Télécharger la vidéo"
+            >
+              <Download size={16} />
+            </a>
+          )}
+
+          {job.status !== 'running' && (
+            <button
+              onClick={() => onDelete(job.id)}
+              disabled={deleting}
+              className="p-2 text-gray-600 hover:text-red-400 hover:bg-gray-800 rounded-lg
+                         transition-colors disabled:opacity-40"
+              title="Supprimer"
+            >
+              {deleting ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <Trash2 size={16} />
+              )}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )
