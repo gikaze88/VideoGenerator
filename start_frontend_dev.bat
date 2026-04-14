@@ -11,6 +11,7 @@ for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":5173 "') do (
 )
 
 echo Demarrage du frontend sur http://localhost:5173
+echo Accessible depuis votre telephone via http://[IP-PC]:5173
 echo Le backend doit etre lance sur le port 8000.
 echo.
 
