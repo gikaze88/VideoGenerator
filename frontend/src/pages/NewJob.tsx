@@ -56,7 +56,8 @@ export default function NewJob() {
   const [error, setError] = useState<string | null>(null)
 
   // YouTube state
-  const [ytExpanded, setYtExpanded] = useState(true)
+  const [ytAutoUpload, setYtAutoUpload] = useState(false)
+  const [ytExpanded, setYtExpanded] = useState(false)
   const [ytAuthenticated, setYtAuthenticated] = useState<boolean | null>(null)
   const [ytAuthLoading, setYtAuthLoading] = useState(false)
   const [playlists, setPlaylists] = useState<YoutubePlaylist[]>([])
@@ -126,9 +127,10 @@ export default function NewJob() {
     setError(null)
     setLoading(true)
     try {
-      const ytData: YoutubeFormData | undefined = ytForm.title.trim()
-        ? { ...ytForm, thumbnail: ytThumbnail ?? undefined }
-        : undefined
+      const ytData: YoutubeFormData | undefined =
+        ytAutoUpload && ytForm.title.trim()
+          ? { ...ytForm, thumbnail: ytThumbnail ?? undefined }
+          : undefined
 
       const result = await createJob(
         style,
@@ -272,22 +274,42 @@ export default function NewJob() {
 
         {/* ── YouTube Upload ──────────────────────────────────────────── */}
         <div className="border border-gray-700 rounded-xl overflow-hidden">
-          <button
-            type="button"
-            onClick={() => setYtExpanded(!ytExpanded)}
-            className="w-full flex items-center justify-between px-4 py-3 bg-gray-900/60 hover:bg-gray-800/60 transition-colors"
-          >
-            <div className="flex items-center gap-2">
-              <Youtube size={18} className="text-red-500" />
-              <span className="text-sm font-medium text-gray-200">Upload YouTube automatique</span>
-              {ytForm.title.trim() && (
-                <span className="text-xs bg-green-900/50 text-green-400 px-2 py-0.5 rounded-full">Activé</span>
-              )}
-            </div>
-            {ytExpanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
-          </button>
+          <div className="flex items-center justify-between px-4 py-3 bg-gray-900/60">
+            <label className="flex items-center gap-3 cursor-pointer flex-1">
+              <input
+                type="checkbox"
+                checked={ytAutoUpload}
+                onChange={(e) => {
+                  setYtAutoUpload(e.target.checked)
+                  if (e.target.checked) setYtExpanded(true)
+                }}
+                className="accent-red-500 w-4 h-4 shrink-0"
+              />
+              <div className="flex items-center gap-2">
+                <Youtube size={18} className="text-red-500" />
+                <span className="text-sm font-medium text-gray-200">Uploader automatiquement sur YouTube à la fin du job</span>
+              </div>
+            </label>
+            {ytAutoUpload && (
+              <button
+                type="button"
+                onClick={() => setYtExpanded(!ytExpanded)}
+                className="p-1 hover:bg-gray-700/50 rounded transition-colors"
+              >
+                {ytExpanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
+              </button>
+            )}
+          </div>
 
-          {ytExpanded && (
+          {!ytAutoUpload && (
+            <div className="px-4 py-2 border-t border-gray-700/50 bg-gray-950/30">
+              <p className="text-xs text-gray-500">
+                Sans auto-upload, vous pourrez télécharger la vidéo et l'uploader manuellement depuis la page de détails du job.
+              </p>
+            </div>
+          )}
+
+          {ytAutoUpload && ytExpanded && (
             <div className="p-4 space-y-5 border-t border-gray-700/50 bg-gray-950/30">
               {/* Auth status */}
               {ytAuthenticated === null ? (
@@ -554,7 +576,7 @@ export default function NewJob() {
                      px-8 py-3 rounded-xl transition-colors"
         >
           <Play size={16} />
-          {loading ? 'Lancement...' : ytForm.title.trim() ? 'Lancer la génération + Upload YouTube' : 'Lancer la génération'}
+          {loading ? 'Lancement...' : ytAutoUpload && ytForm.title.trim() ? 'Lancer la génération + Upload YouTube' : 'Lancer la génération'}
         </button>
       </form>
     </div>
