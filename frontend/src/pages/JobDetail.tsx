@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import {
   ArrowLeft, Download, Loader2, CheckCircle, XCircle, Clock, Terminal,
-  Youtube, ExternalLink, Upload, LogIn, LogOut, RefreshCw,
+  Youtube, ExternalLink, Upload, LogIn, LogOut, RefreshCw, ChevronDown, ChevronUp,
 } from 'lucide-react'
 import {
   getJob, getJobLogs, getJobFiles, getDownloadUrl, formatDate, formatDuration,
@@ -21,6 +21,13 @@ const STEP_LABELS: Record<string, string> = {
   'Étape 6': '🎬 Vidéo de fond',
   'Étape 7': '🎥 Encodage final',
 }
+
+const YT_CATEGORIES = [
+  { id: '27', label: 'Education' },
+  { id: '29', label: 'Nonprofits & Activism' },
+  { id: '22', label: 'People & Blogs' },
+  { id: '26', label: 'Howto & Style' },
+]
 
 function detectCurrentStep(lines: string[]): number {
   let step = 0
@@ -48,10 +55,11 @@ export default function JobDetail() {
   const logEndRef = useRef<HTMLDivElement>(null)
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // ── YouTube state ──────────────────────────────────────────────────────────
+  // YouTube state
   const [ytAuthenticated, setYtAuthenticated] = useState<boolean | null>(null)
   const [ytAuthLoading, setYtAuthLoading] = useState(false)
   const [playlists, setPlaylists] = useState<YoutubePlaylist[]>([])
+  const [showManualUpload, setShowManualUpload] = useState(false)
   const [ytForm, setYtForm] = useState({
     title: '',
     description: '',
@@ -60,6 +68,9 @@ export default function JobDetail() {
     categoryId: '27',
     playlistId: '',
     filename: '',
+    language: 'fr',
+    license: 'youtube',
+    embeddable: 'true',
   })
   const [ytThumbnail, setYtThumbnail] = useState<File | null>(null)
   const [ytUploading, setYtUploading] = useState(false)
@@ -79,7 +90,6 @@ export default function JobDetail() {
     }
   }
 
-  // ── YouTube helpers ────────────────────────────────────────────────────────
   async function checkYtAuth() {
     try {
       const { authenticated } = await getYoutubeAuthStatus()
@@ -103,14 +113,9 @@ export default function JobDetail() {
     setYtAuthLoading(true)
     setYtError(null)
     try {
-      // 1) Demander l'URL d'authentification au backend
       const { url } = await getYoutubeAuthUrl()
-      // 2) Ouvrir l'URL dans un nouvel onglet/fenêtre du navigateur courant
       window.open(url, '_blank', 'noopener,noreferrer')
-      // 3) Poller le statut d'authentification toutes les 2 secondes
-      if (ytAuthPollRef.current) {
-        clearInterval(ytAuthPollRef.current)
-      }
+      if (ytAuthPollRef.current) clearInterval(ytAuthPollRef.current)
       ytAuthPollRef.current = setInterval(async () => {
         try {
           const { authenticated } = await getYoutubeAuthStatus()
@@ -120,9 +125,7 @@ export default function JobDetail() {
             ytAuthPollRef.current = null
             await loadPlaylists()
           }
-        } catch {
-          // on ignore les erreurs ponctuelles de polling
-        }
+        } catch {}
       }, 2000)
     } catch (e: any) {
       setYtError(e.message)
@@ -154,7 +157,6 @@ export default function JobDetail() {
         thumbnail: ytThumbnail ?? undefined,
       })
       setYtResult(result)
-      // Refresh job to get youtube_video_id
       const updated = await getJob(jobId)
       setJob(updated)
     } catch (e: any) {
@@ -207,24 +209,20 @@ export default function JobDetail() {
     }
   }, [jobId])
 
-  // Load YouTube auth status once on mount
   useEffect(() => {
     checkYtAuth()
   }, [])
 
-  // Pre-fill YouTube title from job title when job is loaded
   useEffect(() => {
     if (job?.title && !ytForm.title) {
       setYtForm((f) => ({ ...f, title: job.title ?? '' }))
     }
-    // Default filename to first output file or main video
     if (outputFiles.length > 0 && !ytForm.filename) {
       const preferred = outputFiles.find((f) => f.includes('overlay')) ?? outputFiles[0]
       setYtForm((f) => ({ ...f, filename: preferred }))
     }
   }, [job, outputFiles])
 
-  // Auto-scroll logs
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [logLines])
@@ -249,6 +247,10 @@ export default function JobDetail() {
   const currentStep = detectCurrentStep(logLines)
   const totalSteps = job.style === 'audio_srt' ? 6 : 7
   const progress = job.status === 'completed' ? 100 : Math.round((currentStep / totalSteps) * 100)
+
+  const ytUploaded = !!(ytResult || job.youtube_video_id)
+  const ytVideoId = ytResult?.video_id || job.youtube_video_id
+  const ytStatus = job.youtube_status
 
   return (
     <div className="space-y-6">
@@ -371,31 +373,27 @@ export default function JobDetail() {
         </div>
       )}
 
-      {/* YouTube Upload */}
+      {/* ── YouTube Status ────────────────────────────────────────── */}
       {job.status === 'completed' && (
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-3 sm:p-4 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <Youtube size={18} className="text-red-500 shrink-0" />
-              <span className="text-gray-200 font-medium text-sm sm:text-base">Publier sur YouTube</span>
+              <span className="text-gray-200 font-medium text-sm sm:text-base">YouTube</span>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               {ytAuthenticated === true && (
-                <span className="text-xs text-green-400 flex items-center gap-1">
-                  <CheckCircle size={12} /> Connecté
-                </span>
-              )}
-              {ytAuthenticated === false && (
-                <span className="text-xs text-gray-500">Non connecté</span>
-              )}
-              {ytAuthenticated === true && (
-                <button
-                  onClick={handleYtRevoke}
-                  className="text-xs text-gray-500 hover:text-red-400 flex items-center gap-1 transition-colors"
-                  title="Déconnecter YouTube"
-                >
-                  <LogOut size={12} /> Déconnecter
-                </button>
+                <>
+                  <span className="text-xs text-green-400 flex items-center gap-1">
+                    <CheckCircle size={12} /> Connecté
+                  </span>
+                  <button
+                    onClick={handleYtRevoke}
+                    className="text-xs text-gray-500 hover:text-red-400 flex items-center gap-1 transition-colors"
+                  >
+                    <LogOut size={12} /> Déconnecter
+                  </button>
+                </>
               )}
               <button
                 onClick={checkYtAuth}
@@ -407,15 +405,15 @@ export default function JobDetail() {
             </div>
           </div>
 
-          {/* Résultat upload */}
-          {ytResult && (
+          {/* Upload réussi (auto ou manuel) */}
+          {ytUploaded && ytVideoId && (
             <div className="bg-red-900/20 border border-red-800 rounded-lg p-3 space-y-2">
               <p className="text-red-300 text-sm font-medium flex items-center gap-2">
-                <CheckCircle size={14} /> Vidéo uploadée avec succès !
+                <CheckCircle size={14} /> Vidéo uploadée sur YouTube
               </p>
               <div className="flex flex-wrap gap-2">
                 <a
-                  href={ytResult.url}
+                  href={`https://youtu.be/${ytVideoId}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-1.5 text-xs bg-red-700 hover:bg-red-600 text-white px-3 py-1.5 rounded-lg transition-colors"
@@ -423,33 +421,7 @@ export default function JobDetail() {
                   <ExternalLink size={12} /> Voir sur YouTube
                 </a>
                 <a
-                  href={ytResult.studio_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-200 px-3 py-1.5 rounded-lg transition-colors"
-                >
-                  <ExternalLink size={12} /> Studio YouTube
-                </a>
-              </div>
-              <p className="text-xs text-gray-500">Statut : {ytResult.privacy}</p>
-            </div>
-          )}
-
-          {/* Déjà uploadé (persisté en DB) */}
-          {!ytResult && job.youtube_video_id && (
-            <div className="bg-gray-800 border border-gray-700 rounded-lg p-3 space-y-2">
-              <p className="text-gray-300 text-sm">Déjà publié sur YouTube</p>
-              <div className="flex flex-wrap gap-2">
-                <a
-                  href={`https://youtu.be/${job.youtube_video_id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 text-xs bg-red-700 hover:bg-red-600 text-white px-3 py-1.5 rounded-lg transition-colors"
-                >
-                  <ExternalLink size={12} /> Voir sur YouTube
-                </a>
-                <a
-                  href={`https://studio.youtube.com/video/${job.youtube_video_id}/edit`}
+                  href={`https://studio.youtube.com/video/${ytVideoId}/edit`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-200 px-3 py-1.5 rounded-lg transition-colors"
@@ -460,8 +432,36 @@ export default function JobDetail() {
             </div>
           )}
 
-          {/* Auth button si non connecté */}
-          {ytAuthenticated === false && (
+          {/* Auto-upload en attente (job running avec youtube_metadata) */}
+          {!ytUploaded && job.youtube_metadata && !ytStatus && (
+            <div className="flex items-center gap-2 text-sm text-amber-400">
+              <Loader2 size={14} className="animate-spin" />
+              Auto-upload prévu après la génération…
+            </div>
+          )}
+
+          {/* Auto-upload ignoré (non authentifié) */}
+          {!ytUploaded && ytStatus === 'skipped' && (
+            <div className="bg-amber-900/20 border border-amber-800 rounded-lg p-3">
+              <p className="text-amber-300 text-sm">
+                Auto-upload ignoré : non authentifié au moment de l'upload.
+                Utilisez l'upload manuel ci-dessous.
+              </p>
+            </div>
+          )}
+
+          {/* Auto-upload échoué */}
+          {!ytUploaded && ytStatus === 'failed' && (
+            <div className="bg-red-900/20 border border-red-800 rounded-lg p-3">
+              <p className="text-red-300 text-sm">
+                L'auto-upload a échoué. Consultez les logs pour plus de détails.
+                Vous pouvez réessayer via l'upload manuel.
+              </p>
+            </div>
+          )}
+
+          {/* Auth button si non connecté et pas encore uploadé */}
+          {!ytUploaded && ytAuthenticated === false && (
             <div className="text-center py-2">
               <button
                 onClick={handleYtAuth}
@@ -472,160 +472,181 @@ export default function JobDetail() {
                 {ytAuthLoading ? <Loader2 size={16} className="animate-spin" /> : <LogIn size={16} />}
                 {ytAuthLoading ? 'Ouverture du navigateur…' : 'Connecter mon compte Google'}
               </button>
-              <p className="text-xs text-gray-600 mt-2">
-                Le navigateur s'ouvrira pour vous connecter à Google.
-              </p>
             </div>
           )}
 
-          {/* Formulaire upload si authentifié */}
-          {ytAuthenticated === true && !ytResult && (
-            <form onSubmit={handleYtUpload} className="space-y-3">
-              {/* Titre */}
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Titre *</label>
-                <input
-                  type="text"
-                  required
-                  value={ytForm.title}
-                  onChange={(e) => setYtForm((f) => ({ ...f, title: e.target.value }))}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
-                             text-sm text-gray-200 focus:outline-none focus:border-red-600"
-                  placeholder="Titre de la vidéo YouTube"
-                />
-              </div>
-
-              {/* Description */}
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Description</label>
-                <textarea
-                  rows={4}
-                  value={ytForm.description}
-                  onChange={(e) => setYtForm((f) => ({ ...f, description: e.target.value }))}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
-                             text-sm text-gray-200 focus:outline-none focus:border-red-600 resize-none"
-                  placeholder="Description de la vidéo…"
-                />
-              </div>
-
-              {/* Tags */}
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Tags (séparés par des virgules)</label>
-                <input
-                  type="text"
-                  value={ytForm.tags}
-                  onChange={(e) => setYtForm((f) => ({ ...f, tags: e.target.value }))}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
-                             text-sm text-gray-200 focus:outline-none focus:border-red-600"
-                  placeholder="prière, foi, guérison, évangile…"
-                />
-              </div>
-
-              {/* Fichier vidéo + Confidentialité */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs text-gray-400 mb-1">Fichier vidéo à uploader</label>
-                  <select
-                    value={ytForm.filename}
-                    onChange={(e) => setYtForm((f) => ({ ...f, filename: e.target.value }))}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
-                               text-sm text-gray-200 focus:outline-none focus:border-red-600"
-                  >
-                    <option value="">Vidéo principale</option>
-                    {outputFiles.map((fn) => (
-                      <option key={fn} value={fn}>{fn}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-400 mb-1">Confidentialité</label>
-                  <select
-                    value={ytForm.privacy}
-                    onChange={(e) => setYtForm((f) => ({ ...f, privacy: e.target.value }))}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
-                               text-sm text-gray-200 focus:outline-none focus:border-red-600"
-                  >
-                    <option value="private">🔒 Privé</option>
-                    <option value="unlisted">🔗 Non répertorié</option>
-                    <option value="public">🌍 Public</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Catégorie + Playlist */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs text-gray-400 mb-1">Catégorie YouTube</label>
-                  <select
-                    value={ytForm.categoryId}
-                    onChange={(e) => setYtForm((f) => ({ ...f, categoryId: e.target.value }))}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
-                               text-sm text-gray-200 focus:outline-none focus:border-red-600"
-                  >
-                    <option value="27">Éducation</option>
-                    <option value="22">People & Blogs</option>
-                    <option value="29">Activisme & ONG</option>
-                    <option value="26">Comment faire</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-400 mb-1">Playlist</label>
-                  <select
-                    value={ytForm.playlistId}
-                    onChange={(e) => setYtForm((f) => ({ ...f, playlistId: e.target.value }))}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
-                               text-sm text-gray-200 focus:outline-none focus:border-red-600"
-                  >
-                    <option value="">— Aucune playlist —</option>
-                    {playlists.map((p) => (
-                      <option key={p.id} value={p.id}>{p.title}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Miniature */}
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Miniature (optionnelle)</label>
-                <input
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  onChange={(e) => setYtThumbnail(e.target.files?.[0] ?? null)}
-                  className="w-full text-xs text-gray-400 file:mr-3 file:py-1.5 file:px-3
-                             file:rounded-lg file:border-0 file:text-xs file:font-medium
-                             file:bg-gray-700 file:text-gray-300 hover:file:bg-gray-600"
-                />
-                {ytThumbnail && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    Sélectionnée : {ytThumbnail.name}
-                  </p>
-                )}
-              </div>
-
-              {/* Erreur */}
-              {ytError && (
-                <div className="bg-red-900/30 border border-red-700 rounded-lg p-3">
-                  <p className="text-red-400 text-xs font-mono">{ytError}</p>
-                </div>
-              )}
-
+          {/* Upload manuel (collapsible) — pour retry ou upload sans auto-upload */}
+          {!ytUploaded && ytAuthenticated === true && (
+            <div className="border border-gray-700/50 rounded-lg overflow-hidden">
               <button
-                type="submit"
-                disabled={ytUploading}
-                className="flex items-center gap-2 bg-red-600 hover:bg-red-500 disabled:opacity-50
-                           text-white font-semibold px-5 py-2.5 rounded-xl transition-colors w-full justify-center"
+                type="button"
+                onClick={() => setShowManualUpload(!showManualUpload)}
+                className="w-full flex items-center justify-between px-3 py-2 bg-gray-800/50 hover:bg-gray-800 transition-colors"
               >
-                {ytUploading
-                  ? <><Loader2 size={16} className="animate-spin" /> Upload en cours…</>
-                  : <><Upload size={16} /> Uploader sur YouTube</>
-                }
+                <span className="text-sm text-gray-300 flex items-center gap-2">
+                  <Upload size={14} /> Upload manuel
+                </span>
+                {showManualUpload ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-500" />}
               </button>
-              {ytUploading && (
-                <p className="text-xs text-gray-500 text-center">
-                  L'upload peut prendre plusieurs minutes selon la taille de la vidéo.
-                </p>
+
+              {showManualUpload && (
+                <form onSubmit={handleYtUpload} className="p-3 space-y-3 border-t border-gray-700/50">
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Titre *</label>
+                    <input
+                      type="text"
+                      required
+                      value={ytForm.title}
+                      onChange={(e) => setYtForm((f) => ({ ...f, title: e.target.value }))}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+                                 text-sm text-gray-200 focus:outline-none focus:border-red-600"
+                      placeholder="Titre de la vidéo YouTube"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Description</label>
+                    <textarea
+                      rows={3}
+                      value={ytForm.description}
+                      onChange={(e) => setYtForm((f) => ({ ...f, description: e.target.value }))}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+                                 text-sm text-gray-200 focus:outline-none focus:border-red-600 resize-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Tags (virgules)</label>
+                    <input
+                      type="text"
+                      value={ytForm.tags}
+                      onChange={(e) => setYtForm((f) => ({ ...f, tags: e.target.value }))}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+                                 text-sm text-gray-200 focus:outline-none focus:border-red-600"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Fichier vidéo</label>
+                      <select
+                        value={ytForm.filename}
+                        onChange={(e) => setYtForm((f) => ({ ...f, filename: e.target.value }))}
+                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+                                   text-sm text-gray-200 focus:outline-none focus:border-red-600"
+                      >
+                        <option value="">Vidéo principale</option>
+                        {outputFiles.map((fn) => (
+                          <option key={fn} value={fn}>{fn}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Visibilité</label>
+                      <select
+                        value={ytForm.privacy}
+                        onChange={(e) => setYtForm((f) => ({ ...f, privacy: e.target.value }))}
+                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+                                   text-sm text-gray-200 focus:outline-none focus:border-red-600"
+                      >
+                        <option value="private">Private</option>
+                        <option value="unlisted">Unlisted</option>
+                        <option value="public">Public</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Catégorie</label>
+                      <select
+                        value={ytForm.categoryId}
+                        onChange={(e) => setYtForm((f) => ({ ...f, categoryId: e.target.value }))}
+                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+                                   text-sm text-gray-200 focus:outline-none focus:border-red-600"
+                      >
+                        {YT_CATEGORIES.map((c) => (
+                          <option key={c.id} value={c.id}>{c.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Playlist</label>
+                      <select
+                        value={ytForm.playlistId}
+                        onChange={(e) => setYtForm((f) => ({ ...f, playlistId: e.target.value }))}
+                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+                                   text-sm text-gray-200 focus:outline-none focus:border-red-600"
+                      >
+                        <option value="">Aucune playlist</option>
+                        {playlists.map((p) => (
+                          <option key={p.id} value={p.id}>{p.title}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Langue</label>
+                      <select
+                        value={ytForm.language}
+                        onChange={(e) => setYtForm((f) => ({ ...f, language: e.target.value }))}
+                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+                                   text-sm text-gray-200 focus:outline-none focus:border-red-600"
+                      >
+                        <option value="fr">Français</option>
+                        <option value="en">English</option>
+                        <option value="es">Español</option>
+                        <option value="pt">Português</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Licence</label>
+                      <select
+                        value={ytForm.license}
+                        onChange={(e) => setYtForm((f) => ({ ...f, license: e.target.value }))}
+                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+                                   text-sm text-gray-200 focus:outline-none focus:border-red-600"
+                      >
+                        <option value="youtube">Standard YouTube License</option>
+                        <option value="creativeCommon">Creative Commons</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Miniature (optionnelle)</label>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png"
+                      onChange={(e) => setYtThumbnail(e.target.files?.[0] ?? null)}
+                      className="w-full text-xs text-gray-400 file:mr-3 file:py-1.5 file:px-3
+                                 file:rounded-lg file:border-0 file:text-xs file:font-medium
+                                 file:bg-gray-700 file:text-gray-300 hover:file:bg-gray-600"
+                    />
+                  </div>
+
+                  {ytError && (
+                    <div className="bg-red-900/30 border border-red-700 rounded-lg p-3">
+                      <p className="text-red-400 text-xs font-mono">{ytError}</p>
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={ytUploading}
+                    className="flex items-center gap-2 bg-red-600 hover:bg-red-500 disabled:opacity-50
+                               text-white font-semibold px-5 py-2.5 rounded-xl transition-colors w-full justify-center"
+                  >
+                    {ytUploading
+                      ? <><Loader2 size={16} className="animate-spin" /> Upload en cours…</>
+                      : <><Upload size={16} /> Uploader sur YouTube</>
+                    }
+                  </button>
+                </form>
               )}
-            </form>
+            </div>
           )}
         </div>
       )}
@@ -651,6 +672,7 @@ export default function JobDetail() {
                   line.includes('✅') ? 'text-green-400' :
                   line.includes('🚀') ? 'text-amber-300' :
                   line.includes('🎉') ? 'text-amber-400 font-semibold' :
+                  line.includes('📤') ? 'text-blue-400' :
                   ''
                 }
               >

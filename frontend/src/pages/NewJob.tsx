@@ -1,7 +1,14 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Upload, Play, Info, Music, Video } from 'lucide-react'
-import { createJob, getAssets, type JobStyle, type Assets } from '../api'
+import {
+  Upload, Play, Info, Music, Video, Youtube, ChevronDown, ChevronUp,
+  LogIn, CheckCircle, Loader2, LogOut,
+} from 'lucide-react'
+import {
+  createJob, getAssets, getYoutubeAuthStatus, getYoutubeAuthUrl,
+  revokeYoutubeToken, getYoutubePlaylists,
+  type JobStyle, type Assets, type YoutubeFormData, type YoutubePlaylist,
+} from '../api'
 
 const STYLE_INFO: Record<JobStyle, { label: string; description: string; extraFiles: string[] }> = {
   full: {
@@ -30,6 +37,13 @@ Dans Psaume trente-quatre verset dix-huit : «L'Éternel est près de ceux qui o
 
 Maintenant prions ensemble...`
 
+const YT_CATEGORIES = [
+  { id: '27', label: 'Education' },
+  { id: '29', label: 'Nonprofits & Activism' },
+  { id: '22', label: 'People & Blogs' },
+  { id: '26', label: 'Howto & Style' },
+]
+
 export default function NewJob() {
   const navigate = useNavigate()
   const [style, setStyle] = useState<JobStyle>('full')
@@ -41,9 +55,65 @@ export default function NewJob() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // YouTube state
+  const [ytExpanded, setYtExpanded] = useState(true)
+  const [ytAuthenticated, setYtAuthenticated] = useState<boolean | null>(null)
+  const [ytAuthLoading, setYtAuthLoading] = useState(false)
+  const [playlists, setPlaylists] = useState<YoutubePlaylist[]>([])
+  const [ytForm, setYtForm] = useState<YoutubeFormData>({
+    title: '',
+    description: '',
+    tags: '',
+    privacy: 'private',
+    categoryId: '27',
+    playlistId: '',
+    language: 'fr',
+    license: 'youtube',
+    embeddable: true,
+  })
+  const [ytThumbnail, setYtThumbnail] = useState<File | null>(null)
+
   useEffect(() => {
     getAssets().then(setAssets).catch(() => null)
+    checkYtAuth()
   }, [])
+
+  async function checkYtAuth() {
+    try {
+      const { authenticated } = await getYoutubeAuthStatus()
+      setYtAuthenticated(authenticated)
+      if (authenticated) {
+        try {
+          const list = await getYoutubePlaylists()
+          setPlaylists(list)
+        } catch { setPlaylists([]) }
+      }
+    } catch { setYtAuthenticated(false) }
+  }
+
+  async function handleYtAuth() {
+    setYtAuthLoading(true)
+    try {
+      const { url } = await getYoutubeAuthUrl()
+      window.open(url, '_blank', 'noopener,noreferrer')
+      const poll = setInterval(async () => {
+        try {
+          const { authenticated } = await getYoutubeAuthStatus()
+          if (authenticated) {
+            clearInterval(poll)
+            setYtAuthenticated(true)
+            setYtAuthLoading(false)
+            try {
+              const list = await getYoutubePlaylists()
+              setPlaylists(list)
+            } catch { setPlaylists([]) }
+          }
+        } catch {}
+      }, 2000)
+    } catch {
+      setYtAuthLoading(false)
+    }
+  }
 
   const info = STYLE_INFO[style]
 
@@ -56,11 +126,20 @@ export default function NewJob() {
     setError(null)
     setLoading(true)
     try {
-      const result = await createJob(style, scriptText, {
-        backgroundVideo: bgVideo ?? undefined,
-        audioFile: audioFile ?? undefined,
-        srtFile: srtFile ?? undefined,
-      })
+      const ytData: YoutubeFormData | undefined = ytForm.title.trim()
+        ? { ...ytForm, thumbnail: ytThumbnail ?? undefined }
+        : undefined
+
+      const result = await createJob(
+        style,
+        scriptText,
+        {
+          backgroundVideo: bgVideo ?? undefined,
+          audioFile: audioFile ?? undefined,
+          srtFile: srtFile ?? undefined,
+        },
+        ytData,
+      )
       navigate(`/jobs/${result.job_id}`)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Erreur inconnue')
@@ -191,6 +270,276 @@ export default function NewJob() {
           </div>
         </div>
 
+        {/* ── YouTube Upload ──────────────────────────────────────────── */}
+        <div className="border border-gray-700 rounded-xl overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setYtExpanded(!ytExpanded)}
+            className="w-full flex items-center justify-between px-4 py-3 bg-gray-900/60 hover:bg-gray-800/60 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <Youtube size={18} className="text-red-500" />
+              <span className="text-sm font-medium text-gray-200">Upload YouTube automatique</span>
+              {ytForm.title.trim() && (
+                <span className="text-xs bg-green-900/50 text-green-400 px-2 py-0.5 rounded-full">Activé</span>
+              )}
+            </div>
+            {ytExpanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
+          </button>
+
+          {ytExpanded && (
+            <div className="p-4 space-y-5 border-t border-gray-700/50 bg-gray-950/30">
+              {/* Auth status */}
+              {ytAuthenticated === null ? (
+                <div className="flex items-center gap-2 text-sm text-gray-500">
+                  <Loader2 size={14} className="animate-spin" />
+                  Vérification de l'authentification YouTube…
+                </div>
+              ) : ytAuthenticated ? (
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-sm text-green-400">
+                    <CheckCircle size={14} />
+                    Connecté à YouTube
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await revokeYoutubeToken()
+                      setYtAuthenticated(false)
+                      setPlaylists([])
+                    }}
+                    className="text-xs text-gray-500 hover:text-red-400 flex items-center gap-1 transition-colors"
+                  >
+                    <LogOut size={12} /> Déconnecter
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleYtAuth}
+                    disabled={ytAuthLoading}
+                    className="flex items-center gap-2 bg-red-600 hover:bg-red-500 disabled:opacity-50
+                               text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                  >
+                    {ytAuthLoading ? <Loader2 size={14} className="animate-spin" /> : <LogIn size={14} />}
+                    {ytAuthLoading ? 'En attente…' : 'Se connecter à YouTube'}
+                  </button>
+                  <span className="text-xs text-gray-500">
+                    Requis pour l'upload automatique après génération.
+                  </span>
+                </div>
+              )}
+
+              <p className="text-xs text-gray-500 flex items-center gap-1.5">
+                <Info size={12} className="shrink-0" />
+                Remplissez le titre YouTube pour activer l'auto-upload. La vidéo avec overlays sera uploadée par défaut.
+              </p>
+
+              {/* Title */}
+              <div className="space-y-1.5">
+                <label className="block text-sm font-medium text-gray-300">Titre YouTube</label>
+                <input
+                  type="text"
+                  value={ytForm.title}
+                  onChange={(e) => setYtForm({ ...ytForm, title: e.target.value })}
+                  placeholder="ex: Prière puissante pour la guérison 🙏"
+                  maxLength={100}
+                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200
+                             placeholder-gray-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                />
+                <div className="text-right text-xs text-gray-600">{ytForm.title.length}/100</div>
+              </div>
+
+              {/* Description */}
+              <div className="space-y-1.5">
+                <label className="block text-sm font-medium text-gray-300">Description</label>
+                <textarea
+                  value={ytForm.description}
+                  onChange={(e) => setYtForm({ ...ytForm, description: e.target.value })}
+                  rows={4}
+                  placeholder="Description de la vidéo…"
+                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200
+                             placeholder-gray-600 focus:outline-none focus:border-amber-500 focus:ring-1
+                             focus:ring-amber-500 resize-y"
+                />
+              </div>
+
+              {/* Tags */}
+              <div className="space-y-1.5">
+                <label className="block text-sm font-medium text-gray-300">Tags</label>
+                <input
+                  type="text"
+                  value={ytForm.tags}
+                  onChange={(e) => setYtForm({ ...ytForm, tags: e.target.value })}
+                  placeholder="prière, bible, guérison, foi, Dieu"
+                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200
+                             placeholder-gray-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                />
+                <p className="text-xs text-gray-600">Séparez les tags par des virgules.</p>
+              </div>
+
+              {/* Grid: Visibility + Category */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Visibility */}
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-300">Visibilité</label>
+                  <div className="space-y-1.5">
+                    {(['private', 'unlisted', 'public'] as const).map((v) => (
+                      <label key={v} className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="yt_privacy"
+                          value={v}
+                          checked={ytForm.privacy === v}
+                          onChange={() => setYtForm({ ...ytForm, privacy: v })}
+                          className="accent-amber-500"
+                        />
+                        <span className="text-sm text-gray-300 capitalize">
+                          {v === 'private' ? 'Private (review avant publication)' : v === 'unlisted' ? 'Unlisted' : 'Public'}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Category */}
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-300">Catégorie</label>
+                  <select
+                    value={ytForm.categoryId}
+                    onChange={(e) => setYtForm({ ...ytForm, categoryId: e.target.value })}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200
+                               focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                  >
+                    {YT_CATEGORIES.map((c) => (
+                      <option key={c.id} value={c.id}>{c.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Grid: Playlist + Thumbnail */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Playlist */}
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-300">Playlist</label>
+                  {ytAuthenticated && playlists.length > 0 ? (
+                    <select
+                      value={ytForm.playlistId}
+                      onChange={(e) => setYtForm({ ...ytForm, playlistId: e.target.value })}
+                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200
+                                 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                    >
+                      <option value="">Aucune playlist</option>
+                      {playlists.map((p) => (
+                        <option key={p.id} value={p.id}>{p.title}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <p className="text-xs text-gray-600 py-2">
+                      {ytAuthenticated ? 'Aucune playlist trouvée.' : 'Connectez-vous pour voir vos playlists.'}
+                    </p>
+                  )}
+                </div>
+
+                {/* Thumbnail */}
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-300">Miniature</label>
+                  <label className="flex items-center gap-2 p-2 border border-dashed border-gray-600 rounded-lg
+                                    cursor-pointer hover:border-amber-500 transition-colors bg-gray-900 text-sm">
+                    <Upload size={14} className="text-gray-500 shrink-0" />
+                    <span className="text-gray-400 truncate">
+                      {ytThumbnail ? ytThumbnail.name : 'Image .jpg/.png…'}
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png"
+                      className="hidden"
+                      onChange={(e) => setYtThumbnail(e.target.files?.[0] ?? null)}
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* Grid: Language + Audio language */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-300">Langue de la vidéo</label>
+                  <select
+                    value={ytForm.language}
+                    onChange={(e) => setYtForm({ ...ytForm, language: e.target.value })}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200
+                               focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                  >
+                    <option value="fr">Français</option>
+                    <option value="en">English</option>
+                    <option value="es">Español</option>
+                    <option value="pt">Português</option>
+                    <option value="de">Deutsch</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-300">Langue audio</label>
+                  <select
+                    value={ytForm.language}
+                    onChange={(e) => setYtForm({ ...ytForm, language: e.target.value })}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200
+                               focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                  >
+                    <option value="fr">Français</option>
+                    <option value="en">English</option>
+                    <option value="es">Español</option>
+                    <option value="pt">Português</option>
+                    <option value="de">Deutsch</option>
+                  </select>
+                  <p className="text-xs text-gray-600">Identique à la langue vidéo par défaut.</p>
+                </div>
+              </div>
+
+              {/* Grid: License + Embedding + Made for kids */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-300">Licence</label>
+                  <select
+                    value={ytForm.license}
+                    onChange={(e) => setYtForm({ ...ytForm, license: e.target.value })}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200
+                               focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                  >
+                    <option value="youtube">Standard YouTube License</option>
+                    <option value="creativeCommon">Creative Commons - Attribution</option>
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-300">Intégration</label>
+                  <label className="flex items-center gap-2 py-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={ytForm.embeddable}
+                      onChange={(e) => setYtForm({ ...ytForm, embeddable: e.target.checked })}
+                      className="accent-amber-500 w-4 h-4"
+                    />
+                    <span className="text-sm text-gray-300">Autoriser l'intégration</span>
+                  </label>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-300">Contenu pour enfants</label>
+                  <div className="flex items-center gap-3 py-2">
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input type="radio" name="yt_kids" value="false" checked readOnly className="accent-amber-500" />
+                      <span className="text-sm text-gray-300">Non</span>
+                    </label>
+                    <span className="text-xs text-gray-600">(fixe)</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
         {error && (
           <div className="bg-red-900/30 border border-red-700 text-red-300 rounded-lg px-4 py-3 text-sm">
             {error}
@@ -205,7 +554,7 @@ export default function NewJob() {
                      px-8 py-3 rounded-xl transition-colors"
         >
           <Play size={16} />
-          {loading ? 'Lancement...' : 'Lancer la génération'}
+          {loading ? 'Lancement...' : ytForm.title.trim() ? 'Lancer la génération + Upload YouTube' : 'Lancer la génération'}
         </button>
       </form>
     </div>

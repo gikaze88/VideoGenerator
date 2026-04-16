@@ -1,12 +1,14 @@
 """
 Routes API pour la gestion des jobs.
 """
+import json
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Form, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
+from backend.database import get_connection
 from backend.services.job_runner import (
     create_job,
     submit_job,
@@ -26,16 +28,18 @@ async def create_new_job(
     background_video: Optional[UploadFile] = File(None),
     audio_file: Optional[UploadFile] = File(None),
     srt_file: Optional[UploadFile] = File(None),
+    # YouTube params (tous optionnels — si présents, auto-upload après pipeline)
+    yt_title: str = Form(""),
+    yt_description: str = Form(""),
+    yt_tags: str = Form(""),
+    yt_privacy: str = Form("private"),
+    yt_category_id: str = Form("27"),
+    yt_playlist_id: str = Form(""),
+    yt_language: str = Form("fr"),
+    yt_license: str = Form("youtube"),
+    yt_embeddable: str = Form("true"),
+    yt_thumbnail: Optional[UploadFile] = File(None),
 ):
-    """
-    Crée et lance un nouveau job de génération vidéo.
-
-    - style: "full" | "simple" | "audio_srt"
-    - script_text: contenu du fichier script (format Titre:/Transcript:)
-    - background_video: (style=simple uniquement) fichier vidéo de fond
-    - audio_file: (style=audio_srt) fichier audio .mp3
-    - srt_file: (style=audio_srt) fichier .srt
-    """
     if style not in ("full", "simple", "audio_srt"):
         raise HTTPException(status_code=400, detail=f"Style invalide: {style}")
 
@@ -45,7 +49,6 @@ async def create_new_job(
     if style == "audio_srt" and (not audio_file or not srt_file):
         raise HTTPException(status_code=400, detail="audio_file et srt_file requis pour le style 'audio_srt'")
 
-    # Lire les fichiers uploadés en mémoire
     extra_files: dict[str, bytes] = {}
 
     if background_video:
@@ -61,7 +64,37 @@ async def create_new_job(
         content = await srt_file.read()
         extra_files["subtitles.srt"] = content
 
+    # Sauvegarder la miniature YouTube si fournie
+    if yt_thumbnail and yt_thumbnail.filename:
+        suffix = Path(yt_thumbnail.filename).suffix or ".jpg"
+        thumb_content = await yt_thumbnail.read()
+        extra_files[f"yt_thumbnail{suffix}"] = thumb_content
+
+    # Construire les métadonnées YouTube (seulement si un titre YouTube est fourni)
+    yt_metadata = None
+    if yt_title.strip():
+        yt_metadata = {
+            "title": yt_title.strip(),
+            "description": yt_description,
+            "tags": yt_tags,
+            "privacy": yt_privacy,
+            "category_id": yt_category_id,
+            "playlist_id": yt_playlist_id,
+            "language": yt_language,
+            "license": yt_license,
+            "embeddable": yt_embeddable.lower() == "true",
+        }
+
     job_id = create_job(style)
+
+    if yt_metadata:
+        with get_connection() as conn:
+            conn.execute(
+                "UPDATE jobs SET youtube_metadata = ? WHERE id = ?",
+                (json.dumps(yt_metadata, ensure_ascii=False), job_id),
+            )
+            conn.commit()
+
     submit_job(job_id, style, script_text, extra_files)
 
     return {"job_id": job_id, "status": "pending"}

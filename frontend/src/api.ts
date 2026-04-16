@@ -19,6 +19,7 @@ export interface Job {
   error_message: string | null
   youtube_video_id: string | null
   youtube_status: string | null
+  youtube_metadata: string | null
 }
 
 export interface JobLogs {
@@ -37,6 +38,19 @@ export interface Assets {
 
 // ── Jobs ─────────────────────────────────────────────────────────────────────
 
+export interface YoutubeFormData {
+  title: string
+  description: string
+  tags: string
+  privacy: string
+  categoryId: string
+  playlistId: string
+  language: string
+  license: string
+  embeddable: boolean
+  thumbnail?: File
+}
+
 export async function createJob(
   style: JobStyle,
   scriptText: string,
@@ -44,7 +58,8 @@ export async function createJob(
     backgroundVideo?: File
     audioFile?: File
     srtFile?: File
-  } = {}
+  } = {},
+  youtube?: YoutubeFormData,
 ): Promise<{ job_id: string; status: string }> {
   const form = new FormData()
   form.append('style', style)
@@ -52,6 +67,19 @@ export async function createJob(
   if (files.backgroundVideo) form.append('background_video', files.backgroundVideo)
   if (files.audioFile) form.append('audio_file', files.audioFile)
   if (files.srtFile) form.append('srt_file', files.srtFile)
+
+  if (youtube && youtube.title.trim()) {
+    form.append('yt_title', youtube.title)
+    form.append('yt_description', youtube.description)
+    form.append('yt_tags', youtube.tags)
+    form.append('yt_privacy', youtube.privacy)
+    form.append('yt_category_id', youtube.categoryId)
+    form.append('yt_playlist_id', youtube.playlistId)
+    form.append('yt_language', youtube.language)
+    form.append('yt_license', youtube.license)
+    form.append('yt_embeddable', youtube.embeddable ? 'true' : 'false')
+    if (youtube.thumbnail) form.append('yt_thumbnail', youtube.thumbnail)
+  }
 
   const res = await fetch(`${BASE}/jobs`, { method: 'POST', body: form })
   if (!res.ok) {
@@ -157,6 +185,9 @@ export async function uploadToYoutube(
     categoryId: string
     playlistId: string
     filename: string
+    language?: string
+    license?: string
+    embeddable?: string
     thumbnail?: File
   }
 ): Promise<YoutubeUploadResult> {
@@ -168,6 +199,9 @@ export async function uploadToYoutube(
   form.append('category_id', params.categoryId)
   form.append('playlist_id', params.playlistId)
   form.append('filename', params.filename)
+  form.append('language', params.language ?? 'fr')
+  form.append('license', params.license ?? 'youtube')
+  form.append('embeddable', params.embeddable ?? 'true')
   if (params.thumbnail) form.append('thumbnail', params.thumbnail)
 
   const res = await fetch(`${BASE}/youtube/upload/${jobId}`, { method: 'POST', body: form })

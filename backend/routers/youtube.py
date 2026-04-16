@@ -136,6 +136,9 @@ async def upload_job_to_youtube(
     category_id: str = Form("27"),
     playlist_id: str = Form(""),
     filename: str = Form(""),
+    language: str = Form("fr"),
+    license: str = Form("youtube"),
+    embeddable: str = Form("true"),
     thumbnail: Optional[UploadFile] = File(None),
 ):
     """
@@ -146,10 +149,13 @@ async def upload_job_to_youtube(
       - description  : description (peut être multiligne)
       - tags         : tags séparés par des virgules
       - privacy      : "private" | "unlisted" | "public"  (défaut: private)
-      - category_id  : ID catégorie YouTube (27 = Education, 22 = People & Blogs)
+      - category_id  : "22" = People & Blogs, "27" = Education (défaut)
       - playlist_id  : ID de playlist (optionnel)
-      - filename     : nom du fichier mp4 à uploader (ex: quand_tu_te_sens_seul_overlay.mp4)
-      - thumbnail    : fichier image à définir comme miniature (optionnel)
+      - filename     : nom du fichier mp4 à uploader
+      - language     : langue vidéo/audio (défaut: "fr")
+      - license      : "youtube" (Standard) ou "creativeCommon"
+      - embeddable   : "true" ou "false"
+      - thumbnail    : fichier image miniature (optionnel)
     """
     from backend.services.youtube import is_authenticated, upload_video
 
@@ -194,6 +200,9 @@ async def upload_job_to_youtube(
             category_id=category_id,
             thumbnail_path=thumbnail_path,
             playlist_id=playlist_id if playlist_id else None,
+            language=language,
+            license=license,
+            embeddable=embeddable.lower() == "true",
             log_callback=logs.append,
         )
 

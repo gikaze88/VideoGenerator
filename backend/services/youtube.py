@@ -166,6 +166,9 @@ def upload_video(
     category_id: str = "27",
     thumbnail_path: Path | None = None,
     playlist_id: str | None = None,
+    language: str = "fr",
+    license: str = "youtube",
+    embeddable: bool = True,
     log_callback=None,
 ) -> str:
     """
@@ -173,9 +176,13 @@ def upload_video(
 
     Paramètres :
       - privacy     : "private" | "unlisted" | "public"
-      - category_id : "27" = People & Blogs (défaut), "22" = People & Blogs (EN)
+      - category_id : "22" = People & Blogs, "27" = Education (défaut),
+                      "26" = Howto & Style, "29" = Nonprofits & Activism
       - thumbnail   : chemin vers une image .jpg/.png (optionnel)
       - playlist_id : ID de playlist pour y ajouter la vidéo (optionnel)
+      - language    : langue de la vidéo et de l'audio (défaut: "fr")
+      - license     : "youtube" (Standard) ou "creativeCommon"
+      - embeddable  : autoriser l'intégration sur d'autres sites
     """
     def _log(msg: str):
         if log_callback:
@@ -189,11 +196,15 @@ def upload_video(
             "description": description,
             "tags": tags,
             "categoryId": category_id,
-            "defaultLanguage": "fr",
+            "defaultLanguage": language,
+            "defaultAudioLanguage": language,
         },
         "status": {
             "privacyStatus": privacy,
             "selfDeclaredMadeForKids": False,
+            "license": license,
+            "embeddable": embeddable,
+            "publicStatsViewable": True,
         },
     }
 

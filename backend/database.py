@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     log_file TEXT,
     error_message TEXT,
     youtube_video_id TEXT,
-    youtube_status TEXT
+    youtube_status TEXT,
+    youtube_metadata TEXT
 )
 """
 
@@ -38,6 +39,7 @@ def _migrate_db(conn):
     new_columns = {
         "youtube_video_id": "TEXT",
         "youtube_status": "TEXT",
+        "youtube_metadata": "TEXT",
     }
     for col, col_type in new_columns.items():
         if col not in existing:
