@@ -7,6 +7,13 @@ from backend.config import BACKGROUND_SONGS_DIR, VIDEOS_DB_DIR, AUDIO_EXTENSIONS
 router = APIRouter(prefix="/api/assets", tags=["assets"])
 
 
+def _count_videos(directory):
+    """Compte les fichiers vidéo dans un dossier (non récursif)."""
+    if not directory.exists():
+        return 0
+    return sum(1 for f in directory.iterdir() if f.suffix.lower() in VIDEO_EXTENSIONS)
+
+
 @router.get("")
 async def list_assets():
     """Retourne la liste des musiques de fond et vidéos disponibles."""
@@ -17,30 +24,32 @@ async def list_assets():
             if f.suffix.lower() in AUDIO_EXTENSIONS
         ]
 
-    videos = []
-    if VIDEOS_DB_DIR.exists():
-        videos = [
-            f.name for f in sorted(VIDEOS_DB_DIR.iterdir())
-            if f.suffix.lower() in VIDEO_EXTENSIONS
-        ]
+    dark_dir = VIDEOS_DB_DIR / "videos_db_dark"
+    light_dir = VIDEOS_DB_DIR / "videos_db_light"
 
     return {
         "songs": songs,
         "songs_count": len(songs),
-        "videos": videos,
-        "videos_count": len(videos),
+        "videos_dark_count": _count_videos(dark_dir),
+        "videos_light_count": _count_videos(light_dir),
     }
 
 
 @router.get("/health")
 async def health_check():
     """Vérifie que les dossiers de ressources sont accessibles."""
+    dark_dir = VIDEOS_DB_DIR / "videos_db_dark"
+    light_dir = VIDEOS_DB_DIR / "videos_db_light"
     return {
-        "videos_db": {
-            "path": str(VIDEOS_DB_DIR),
-            "exists": VIDEOS_DB_DIR.exists(),
-            "count": sum(1 for f in VIDEOS_DB_DIR.iterdir() if f.suffix.lower() in VIDEO_EXTENSIONS)
-            if VIDEOS_DB_DIR.exists() else 0,
+        "videos_db_dark": {
+            "path": str(dark_dir),
+            "exists": dark_dir.exists(),
+            "count": _count_videos(dark_dir),
+        },
+        "videos_db_light": {
+            "path": str(light_dir),
+            "exists": light_dir.exists(),
+            "count": _count_videos(light_dir),
         },
         "background_songs": {
             "path": str(BACKGROUND_SONGS_DIR),

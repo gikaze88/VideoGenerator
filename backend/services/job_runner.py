@@ -34,10 +34,11 @@ def create_job(style: str) -> str:
     return job_id
 
 
-def submit_job(job_id: str, style: str, script_text: str, extra_files: dict[str, bytes] = None):
+def submit_job(job_id: str, style: str, script_text: str, extra_files: dict[str, bytes] = None, video_mode: str = "dark"):
     """
     Prépare le dossier du job et le soumet à l'executor.
     extra_files: {"background_video.mp4": bytes, "audio.mp3": bytes, "subtitles.srt": bytes}
+    video_mode: "dark" ou "light" — détermine le sous-dossier de videos_db utilisé.
     """
     job_dir = OUTPUTS_DIR / job_id
     work_dir = job_dir / "working"
@@ -46,15 +47,12 @@ def submit_job(job_id: str, style: str, script_text: str, extra_files: dict[str,
 
     log_file = job_dir / "pipeline.log"
 
-    # Sauvegarder les fichiers uploadés
     if extra_files:
         for filename, content in extra_files.items():
             (work_dir / filename).write_bytes(content)
 
-    # Sauvegarder le texte du script
     (work_dir / "script_video.txt").write_text(script_text, encoding="utf-8")
 
-    # Mettre à jour le statut
     with get_connection() as conn:
         conn.execute(
             "UPDATE jobs SET status='pending', log_file=? WHERE id=?",
@@ -62,12 +60,11 @@ def submit_job(job_id: str, style: str, script_text: str, extra_files: dict[str,
         )
         conn.commit()
 
-    _executor.submit(_run_job, job_id, style, script_text, work_dir, job_dir, log_file, extra_files or {})
+    _executor.submit(_run_job, job_id, style, script_text, work_dir, job_dir, log_file, extra_files or {}, video_mode)
 
 
-def _run_job(job_id: str, style: str, script_text: str, work_dir: Path, job_dir: Path, log_file: Path, extra_files: dict):
+def _run_job(job_id: str, style: str, script_text: str, work_dir: Path, job_dir: Path, log_file: Path, extra_files: dict, video_mode: str = "dark"):
     """Exécute réellement le pipeline dans le thread de fond."""
-    # Marquer comme running
     with get_connection() as conn:
         conn.execute(
             "UPDATE jobs SET status='running', started_at=? WHERE id=?",
@@ -76,7 +73,7 @@ def _run_job(job_id: str, style: str, script_text: str, work_dir: Path, job_dir:
         conn.commit()
 
     try:
-        final_video = _dispatch_pipeline(style, script_text, work_dir, job_dir, log_file, extra_files)
+        final_video = _dispatch_pipeline(style, script_text, work_dir, job_dir, log_file, extra_files, video_mode)
 
         # Copier la vidéo finale à la racine du dossier job
         dest = job_dir / final_video.name
@@ -109,11 +106,11 @@ def _run_job(job_id: str, style: str, script_text: str, work_dir: Path, job_dir:
             conn.commit()
 
 
-def _dispatch_pipeline(style: str, script_text: str, work_dir: Path, job_dir: Path, log_file: Path, extra_files: dict) -> Path:
+def _dispatch_pipeline(style: str, script_text: str, work_dir: Path, job_dir: Path, log_file: Path, extra_files: dict, video_mode: str = "dark") -> Path:
     """Appelle le bon pipeline selon le style."""
     if style == "full":
         from backend.services.pipelines.pipeline_full import run_pipeline_full
-        return run_pipeline_full(script_text, work_dir, job_dir, log_file)
+        return run_pipeline_full(script_text, work_dir, job_dir, log_file, video_mode=video_mode)
 
     elif style == "simple":
         bg_video = work_dir / "background_video.mp4"
@@ -123,20 +120,19 @@ def _dispatch_pipeline(style: str, script_text: str, work_dir: Path, job_dir: Pa
         return run_pipeline_simple(script_text, bg_video, work_dir, job_dir, log_file)
 
     elif style == "audio_srt":
-        # Chercher le fichier audio et SRT dans work_dir
         audio_files = list(work_dir.glob("*.mp3")) + list(work_dir.glob("*.wav")) + list(work_dir.glob("*.m4a"))
         srt_files = list(work_dir.glob("*.srt"))
         if not audio_files:
             raise FileNotFoundError("Aucun fichier audio .mp3/.wav/.m4a trouvé pour le style 'audio_srt'")
         if not srt_files:
             raise FileNotFoundError("Aucun fichier .srt trouvé pour le style 'audio_srt'")
-        # Vidéo de fond optionnelle : si fournie, portrait/paysage sera détecté
         bg_video = work_dir / "background_video.mp4"
         bg_video_arg = bg_video if bg_video.exists() else None
         from backend.services.pipelines.pipeline_audio_srt import run_pipeline_audio_srt
         return run_pipeline_audio_srt(
             script_text, audio_files[0], srt_files[0], work_dir, job_dir, log_file,
             background_video=bg_video_arg,
+            video_mode=video_mode,
         )
 
     else:

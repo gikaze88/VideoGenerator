@@ -45,6 +45,7 @@ def run_pipeline_audio_srt(
     output_dir: Path,
     log_file: Path,
     background_video: Path | None = None,
+    video_mode: str = "dark",
 ) -> Path:
     """
     Pipeline audio+srt : utilise l'audio et le SRT fournis (pas de TTS).
@@ -123,7 +124,7 @@ def run_pipeline_audio_srt(
         loop_video_to_duration(background_video, audio_duration, bg_video, log_file)
     else:
         bg_video = work_dir / "background_video.mp4"
-        generate_background_from_videos_db(audio_duration, bg_video, work_dir, log_file)
+        generate_background_from_videos_db(audio_duration, bg_video, work_dir, log_file, video_mode=video_mode)
 
     bg_music = select_random_background_music()
     log(f"  Musique : {bg_music.name}", log_file)

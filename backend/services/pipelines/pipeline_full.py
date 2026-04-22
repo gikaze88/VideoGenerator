@@ -38,6 +38,7 @@ def run_pipeline_full(
     work_dir: Path,
     output_dir: Path,
     log_file: Path,
+    video_mode: str = "dark",
 ) -> Path:
     """
     Exécute le pipeline complet full :
@@ -103,7 +104,7 @@ def run_pipeline_full(
     log(f"  Durée audio : {audio_duration:.1f}s", log_file)
 
     background_video = work_dir / "background_video.mp4"
-    generate_background_from_videos_db(audio_duration, background_video, work_dir, log_file)
+    generate_background_from_videos_db(audio_duration, background_video, work_dir, log_file, video_mode=video_mode)
 
     bg_music = select_random_background_music()
     log(f"  Musique : {bg_music.name}", log_file)

@@ -2,12 +2,12 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Upload, Play, Info, Music, Video, Youtube, ChevronDown, ChevronUp,
-  LogIn, CheckCircle, Loader2, LogOut,
+  LogIn, CheckCircle, Loader2, LogOut, Moon, Sun,
 } from 'lucide-react'
 import {
   createJob, getAssets, getYoutubeAuthStatus, getYoutubeAuthUrl,
   revokeYoutubeToken, getYoutubePlaylists,
-  type JobStyle, type Assets, type YoutubeFormData, type YoutubePlaylist,
+  type JobStyle, type Assets, type YoutubeFormData, type YoutubePlaylist, type VideoMode,
 } from '../api'
 
 const STYLE_INFO: Record<JobStyle, { label: string; description: string; extraFiles: string[] }> = {
@@ -47,6 +47,7 @@ const YT_CATEGORIES = [
 export default function NewJob() {
   const navigate = useNavigate()
   const [style, setStyle] = useState<JobStyle>('full')
+  const [videoMode, setVideoMode] = useState<VideoMode>('dark')
   const [scriptText, setScriptText] = useState('')
   const [bgVideo, setBgVideo] = useState<File | null>(null)
   const [audioFile, setAudioFile] = useState<File | null>(null)
@@ -141,6 +142,7 @@ export default function NewJob() {
           srtFile: srtFile ?? undefined,
         },
         ytData,
+        videoMode,
       )
       navigate(`/jobs/${result.job_id}`)
     } catch (err: unknown) {
@@ -161,8 +163,12 @@ export default function NewJob() {
       {assets && (
         <div className="flex flex-wrap gap-3 sm:gap-4 text-xs sm:text-sm">
           <div className="flex items-center gap-1.5 text-gray-500">
-            <Video size={14} />
-            <span>{assets.videos_count} vidéo(s)</span>
+            <Moon size={14} />
+            <span>{assets.videos_dark_count} vidéo(s) sombres</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-gray-500">
+            <Sun size={14} />
+            <span>{assets.videos_light_count} vidéo(s) claires</span>
           </div>
           <div className="flex items-center gap-1.5 text-gray-500">
             <Music size={14} />
@@ -202,6 +208,45 @@ export default function NewJob() {
             ))}
           </div>
         </div>
+
+        {/* Mode visuel (dark/light) — pertinent pour full et audio_srt sans vidéo fournie */}
+        {style !== 'simple' && (
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-gray-300">Ambiance visuelle</label>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setVideoMode('dark')}
+                className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-xl border transition-all ${
+                  videoMode === 'dark'
+                    ? 'border-indigo-500 bg-indigo-500/10 ring-1 ring-indigo-500'
+                    : 'border-gray-700 bg-gray-900 hover:border-gray-600'
+                }`}
+              >
+                <Moon size={16} className={videoMode === 'dark' ? 'text-indigo-400' : 'text-gray-500'} />
+                <div className="text-left">
+                  <div className={`text-sm font-medium ${videoMode === 'dark' ? 'text-indigo-300' : 'text-gray-300'}`}>Sombre</div>
+                  <div className="text-xs text-gray-500">Prières du soir, ambiance contemplative</div>
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setVideoMode('light')}
+                className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-xl border transition-all ${
+                  videoMode === 'light'
+                    ? 'border-amber-500 bg-amber-500/10 ring-1 ring-amber-500'
+                    : 'border-gray-700 bg-gray-900 hover:border-gray-600'
+                }`}
+              >
+                <Sun size={16} className={videoMode === 'light' ? 'text-amber-400' : 'text-gray-500'} />
+                <div className="text-left">
+                  <div className={`text-sm font-medium ${videoMode === 'light' ? 'text-amber-300' : 'text-gray-300'}`}>Clair</div>
+                  <div className="text-xs text-gray-500">Prières du matin, ambiance lumineuse</div>
+                </div>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Fichiers supplémentaires conditionnels */}
         {style === 'simple' && (

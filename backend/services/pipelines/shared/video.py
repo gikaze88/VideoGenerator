@@ -50,22 +50,30 @@ def generate_background_from_videos_db(
     output_video: Path,
     work_dir: Path,
     log_file: Path | None = None,
+    video_mode: str = "dark",
 ) -> Path:
     """
     Assemble des clips aléatoires depuis videos_db/ pour couvrir target_duration + 4s.
+    video_mode: "dark" → videos_db/videos_db_dark/, "light" → videos_db/videos_db_light/
     """
     extended = target_duration + 4
-    log(f"🎬 Assemblage vidéo de fond ({extended:.1f}s)...", log_file)
 
-    if not VIDEOS_DB_DIR.exists():
-        raise FileNotFoundError(f"Dossier videos_db introuvable : {VIDEOS_DB_DIR}")
+    sub_dir = VIDEOS_DB_DIR / f"videos_db_{video_mode}"
+    if not sub_dir.exists():
+        sub_dir = VIDEOS_DB_DIR
+        log(f"  ⚠️ Sous-dossier videos_db_{video_mode} introuvable, fallback sur videos_db/", log_file)
+
+    log(f"🎬 Assemblage vidéo de fond ({extended:.1f}s) — mode {video_mode}...", log_file)
+
+    if not sub_dir.exists():
+        raise FileNotFoundError(f"Dossier videos_db introuvable : {sub_dir}")
 
     video_files = [
-        f for f in VIDEOS_DB_DIR.iterdir()
+        f for f in sub_dir.iterdir()
         if f.suffix.lower() in VIDEO_EXTENSIONS
     ]
     if not video_files:
-        raise FileNotFoundError("Aucune vidéo dans videos_db/")
+        raise FileNotFoundError(f"Aucune vidéo dans {sub_dir.name}/")
 
     log(f"  {len(video_files)} vidéo(s) disponible(s)", log_file)
 

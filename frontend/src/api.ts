@@ -32,8 +32,8 @@ export interface JobLogs {
 export interface Assets {
   songs: string[]
   songs_count: number
-  videos: string[]
-  videos_count: number
+  videos_dark_count: number
+  videos_light_count: number
 }
 
 // ── Jobs ─────────────────────────────────────────────────────────────────────
@@ -51,6 +51,8 @@ export interface YoutubeFormData {
   thumbnail?: File
 }
 
+export type VideoMode = 'dark' | 'light'
+
 export async function createJob(
   style: JobStyle,
   scriptText: string,
@@ -60,10 +62,12 @@ export async function createJob(
     srtFile?: File
   } = {},
   youtube?: YoutubeFormData,
+  videoMode: VideoMode = 'dark',
 ): Promise<{ job_id: string; status: string }> {
   const form = new FormData()
   form.append('style', style)
   form.append('script_text', scriptText)
+  form.append('video_mode', videoMode)
   if (files.backgroundVideo) form.append('background_video', files.backgroundVideo)
   if (files.audioFile) form.append('audio_file', files.audioFile)
   if (files.srtFile) form.append('srt_file', files.srtFile)
