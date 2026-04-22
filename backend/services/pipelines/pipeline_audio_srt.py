@@ -46,6 +46,7 @@ def run_pipeline_audio_srt(
     log_file: Path,
     background_video: Path | None = None,
     video_mode: str = "dark",
+    boost_audio_enabled: bool = False,
 ) -> Path:
     """
     Pipeline audio+srt : utilise l'audio et le SRT fournis (pas de TTS).
@@ -67,10 +68,14 @@ def run_pipeline_audio_srt(
     clean_text_path = work_dir / "script_nettoye.txt"
     clean_text_path.write_text(script_clean, encoding="utf-8")
 
-    # ── Étape 2 : Boost audio fourni ─────────────────────────────────────────
-    log("\n🔊 Étape 2/6 : Boost de l'audio fourni...", log_file)
-    boosted_audio = work_dir / "audio_boosted.mp3"
-    boost_audio(audio_file, boosted_audio, log_file=log_file)
+    # ── Étape 2 : Boost audio (optionnel) ────────────────────────────────────
+    if boost_audio_enabled:
+        log("\n🔊 Étape 2/6 : Boost de l'audio (+10dB)...", log_file)
+        boosted_audio = work_dir / "audio_boosted.mp3"
+        boost_audio(audio_file, boosted_audio, log_file=log_file)
+    else:
+        log("\n🔊 Étape 2/6 : Audio utilisé tel quel (pas de boost)", log_file)
+        boosted_audio = audio_file
 
     # ── Détection du format (portrait / paysage) et adaptation du SRT ────────
     portrait_mode = False

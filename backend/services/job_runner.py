@@ -34,11 +34,12 @@ def create_job(style: str) -> str:
     return job_id
 
 
-def submit_job(job_id: str, style: str, script_text: str, extra_files: dict[str, bytes] = None, video_mode: str = "dark"):
+def submit_job(job_id: str, style: str, script_text: str, extra_files: dict[str, bytes] = None, video_mode: str = "dark", boost_audio: bool = False):
     """
     Prépare le dossier du job et le soumet à l'executor.
     extra_files: {"background_video.mp4": bytes, "audio.mp3": bytes, "subtitles.srt": bytes}
     video_mode: "dark" ou "light" — détermine le sous-dossier de videos_db utilisé.
+    boost_audio: si True, booste l'audio de +10dB (pipeline audio_srt uniquement).
     """
     job_dir = OUTPUTS_DIR / job_id
     work_dir = job_dir / "working"
@@ -60,10 +61,10 @@ def submit_job(job_id: str, style: str, script_text: str, extra_files: dict[str,
         )
         conn.commit()
 
-    _executor.submit(_run_job, job_id, style, script_text, work_dir, job_dir, log_file, extra_files or {}, video_mode)
+    _executor.submit(_run_job, job_id, style, script_text, work_dir, job_dir, log_file, extra_files or {}, video_mode, boost_audio)
 
 
-def _run_job(job_id: str, style: str, script_text: str, work_dir: Path, job_dir: Path, log_file: Path, extra_files: dict, video_mode: str = "dark"):
+def _run_job(job_id: str, style: str, script_text: str, work_dir: Path, job_dir: Path, log_file: Path, extra_files: dict, video_mode: str = "dark", boost_audio: bool = False):
     """Exécute réellement le pipeline dans le thread de fond."""
     with get_connection() as conn:
         conn.execute(
@@ -73,7 +74,7 @@ def _run_job(job_id: str, style: str, script_text: str, work_dir: Path, job_dir:
         conn.commit()
 
     try:
-        final_video = _dispatch_pipeline(style, script_text, work_dir, job_dir, log_file, extra_files, video_mode)
+        final_video = _dispatch_pipeline(style, script_text, work_dir, job_dir, log_file, extra_files, video_mode, boost_audio)
 
         # Copier la vidéo finale à la racine du dossier job
         dest = job_dir / final_video.name
@@ -106,7 +107,7 @@ def _run_job(job_id: str, style: str, script_text: str, work_dir: Path, job_dir:
             conn.commit()
 
 
-def _dispatch_pipeline(style: str, script_text: str, work_dir: Path, job_dir: Path, log_file: Path, extra_files: dict, video_mode: str = "dark") -> Path:
+def _dispatch_pipeline(style: str, script_text: str, work_dir: Path, job_dir: Path, log_file: Path, extra_files: dict, video_mode: str = "dark", boost_audio: bool = False) -> Path:
     """Appelle le bon pipeline selon le style."""
     if style == "full":
         from backend.services.pipelines.pipeline_full import run_pipeline_full
@@ -133,6 +134,7 @@ def _dispatch_pipeline(style: str, script_text: str, work_dir: Path, job_dir: Pa
             script_text, audio_files[0], srt_files[0], work_dir, job_dir, log_file,
             background_video=bg_video_arg,
             video_mode=video_mode,
+            boost_audio_enabled=boost_audio,
         )
 
     else:

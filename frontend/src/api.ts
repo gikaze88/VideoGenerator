@@ -63,11 +63,13 @@ export async function createJob(
   } = {},
   youtube?: YoutubeFormData,
   videoMode: VideoMode = 'dark',
+  boostAudio: boolean = false,
 ): Promise<{ job_id: string; status: string }> {
   const form = new FormData()
   form.append('style', style)
   form.append('script_text', scriptText)
   form.append('video_mode', videoMode)
+  form.append('boost_audio', boostAudio ? 'true' : 'false')
   if (files.backgroundVideo) form.append('background_video', files.backgroundVideo)
   if (files.audioFile) form.append('audio_file', files.audioFile)
   if (files.srtFile) form.append('srt_file', files.srtFile)

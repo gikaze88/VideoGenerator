@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Upload, Play, Info, Music, Video, Youtube, ChevronDown, ChevronUp,
-  LogIn, CheckCircle, Loader2, LogOut, Moon, Sun,
+  LogIn, CheckCircle, Loader2, LogOut, Moon, Sun, Volume2,
 } from 'lucide-react'
 import {
   createJob, getAssets, getYoutubeAuthStatus, getYoutubeAuthUrl,
@@ -48,6 +48,7 @@ export default function NewJob() {
   const navigate = useNavigate()
   const [style, setStyle] = useState<JobStyle>('full')
   const [videoMode, setVideoMode] = useState<VideoMode>('dark')
+  const [boostAudio, setBoostAudio] = useState(false)
   const [scriptText, setScriptText] = useState('')
   const [bgVideo, setBgVideo] = useState<File | null>(null)
   const [audioFile, setAudioFile] = useState<File | null>(null)
@@ -143,6 +144,7 @@ export default function NewJob() {
         },
         ytData,
         videoMode,
+        style === 'audio_srt' ? boostAudio : false,
       )
       navigate(`/jobs/${result.job_id}`)
     } catch (err: unknown) {
@@ -289,6 +291,19 @@ export default function NewJob() {
                 Sans vidéo de fond, les clips de videos_db sont utilisés.
               </p>
             )}
+            <label className="flex items-center gap-3 p-3 rounded-xl border border-gray-700 bg-gray-900 cursor-pointer hover:border-gray-600 transition-colors">
+              <input
+                type="checkbox"
+                checked={boostAudio}
+                onChange={(e) => setBoostAudio(e.target.checked)}
+                className="accent-amber-500 w-4 h-4 shrink-0"
+              />
+              <Volume2 size={16} className={boostAudio ? 'text-amber-400' : 'text-gray-500'} />
+              <div>
+                <div className="text-sm text-gray-200">Booster l'audio (+10dB)</div>
+                <div className="text-xs text-gray-500">Décoché par défaut — l'audio issu des pipelines Full/Simple est déjà boosté.</div>
+              </div>
+            </label>
           </div>
         )}
 

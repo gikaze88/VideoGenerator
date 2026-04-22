@@ -40,6 +40,7 @@ async def create_new_job(
     yt_embeddable: str = Form("true"),
     yt_thumbnail: Optional[UploadFile] = File(None),
     video_mode: str = Form("dark"),
+    boost_audio: str = Form("false"),
 ):
     if style not in ("full", "simple", "audio_srt"):
         raise HTTPException(status_code=400, detail=f"Style invalide: {style}")
@@ -97,7 +98,7 @@ async def create_new_job(
             conn.commit()
 
     validated_mode = video_mode if video_mode in ("dark", "light") else "dark"
-    submit_job(job_id, style, script_text, extra_files, video_mode=validated_mode)
+    submit_job(job_id, style, script_text, extra_files, video_mode=validated_mode, boost_audio=boost_audio.lower() == "true")
 
     return {"job_id": job_id, "status": "pending"}
 
